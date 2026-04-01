@@ -51,8 +51,8 @@ export default function FinalCVCheck() {
             }`}
           >
             <p className="text-xs text-muted-foreground truncate">{m.name}</p>
-            <p className="text-xl font-bold mt-1">{m.cv_mean.toFixed(4)}</p>
-            <p className="text-xs text-muted-foreground">±{m.cv_std.toFixed(4)}</p>
+            <p className="text-xl font-bold mt-1">{m.cv_mean?.toFixed(4) ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">±{m.cv_std?.toFixed(4) ?? '—'}</p>
             {m.status === "Selected" && (
               <span className="text-xs text-warning mt-1 block">Selected</span>
             )}
