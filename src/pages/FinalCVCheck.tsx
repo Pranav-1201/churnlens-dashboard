@@ -123,7 +123,7 @@ export default function FinalCVCheck() {
                   <td>{m.cv_mean?.toFixed(4) ?? '—'}</td>
                   <td>{m.cv_std?.toFixed(4) ?? '—'}</td>
                   <td>
-                    {m.cv_std < 0.015 ? "✓ Stable" : "⚠ Review"}
+                    {(m.cv_std ?? 0) < 0.015 ? "✓ Stable" : "⚠ Review"}
                   </td>
                 </tr>
               ))}
