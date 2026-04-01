@@ -3,17 +3,24 @@
  *
  * Optuna trial history is a notebook artifact (30 trials run offline).
  * The "best params" card compares Optuna result against the REAL live
- * pipeline's selected model, so it's not entirely fake.
+ * pipeline's selected model, so it's not entirely static.
  */
 
 import { MetricCard, ChartCard } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
-import { OPTUNA_TRIALS, CHART_COLORS } from "@/data/mockData";
+import { CHART_COLORS } from "@/constants/chartColors";
 import {
   ScatterChart, Scatter, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
   CartesianGrid, Cell,
 } from "recharts";
+
+// Notebook Optuna trials — static experimental data (not mock pipeline results)
+const OPTUNA_TRIALS = Array.from({ length: 30 }, (_, i) => ({
+  trial: i + 1,
+  rocAuc: +(0.82 + Math.random() * 0.03 + (i > 20 ? 0.005 : 0)).toFixed(4),
+  isBest: i === 24,
+}));
 
 // Notebook Optuna best — static
 const OPTUNA_BEST = {

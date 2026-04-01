@@ -1,5 +1,5 @@
 /**
- * EDA.tsx — FIXED
+ * EDA.tsx — fully wired to pipeline results
  */
 
 import { useState, useMemo } from "react";
@@ -101,12 +101,9 @@ export default function EDA() {
               <YAxis tickFormatter={(v) => `${v}%`} />
               <Tooltip formatter={(v: number) => `${v.toFixed(1)}%`} />
               <Bar dataKey="churn_pct">
-                {(() => {
-                  const COLORS = Object.values(CHART_COLORS);
-                  return eda.by_contract.map((_, i) => (
-                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                  ));
-                })()}
+                {eda.by_contract.map((_, i) => (
+                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
+                ))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -117,10 +114,22 @@ export default function EDA() {
       {activeTab === 2 && (
         <ChartCard title="Dataset Stats">
           <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>Total Customers: {eda.total_customers}</div>
-            <div>Churn Count: {eda.churn_count}</div>
-            <div>Retained: {eda.retain_count}</div>
-            <div>Churn Rate: {churnPct}%</div>
+            <div className="glass-card p-3">
+              <span className="text-xs text-muted-foreground">Total Customers</span>
+              <p className="text-lg font-bold">{eda.total_customers.toLocaleString()}</p>
+            </div>
+            <div className="glass-card p-3">
+              <span className="text-xs text-muted-foreground">Churn Count</span>
+              <p className="text-lg font-bold">{eda.churn_count.toLocaleString()}</p>
+            </div>
+            <div className="glass-card p-3">
+              <span className="text-xs text-muted-foreground">Retained</span>
+              <p className="text-lg font-bold">{eda.retain_count.toLocaleString()}</p>
+            </div>
+            <div className="glass-card p-3">
+              <span className="text-xs text-muted-foreground">Churn Rate</span>
+              <p className="text-lg font-bold">{churnPct}%</p>
+            </div>
           </div>
         </ChartCard>
       )}

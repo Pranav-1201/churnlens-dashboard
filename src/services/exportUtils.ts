@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+import type { PipelineResults } from './api';
 
 // ============================================
 // CSV Export
@@ -33,7 +34,6 @@ export async function exportChartAsPNG(containerId: string, filename: string) {
   }
 
   try {
-    // Use SVG serialization for Recharts
     const svg = container.querySelector('svg');
     if (!svg) {
       toast.error('No chart SVG found');
@@ -80,30 +80,52 @@ export async function exportChartAsPNG(containerId: string, filename: string) {
 }
 
 // ============================================
-// PDF Export (browser-based)
+// PDF Export (browser-based) — uses real pipeline results
 // ============================================
-export async function exportReportAsPDF() {
+export async function exportReportAsPDF(results?: PipelineResults | null) {
   toast.info('Generating PDF report...');
 
-  // Dynamically create a print-friendly page
   const printWindow = window.open('', '_blank');
   if (!printWindow) {
     toast.error('Popup blocked — please allow popups for PDF export');
     return;
   }
 
-  const reportHTML = generateReportHTML();
+  const reportHTML = generateReportHTML(results);
   printWindow.document.write(reportHTML);
   printWindow.document.close();
 
-  // Wait for content to render then trigger print
   setTimeout(() => {
     printWindow.print();
     toast.success('PDF report ready — use your browser\'s Save as PDF option');
   }, 500);
 }
 
-function generateReportHTML(): string {
+function generateReportHTML(results?: PipelineResults | null): string {
+  const eda = results?.eda;
+  const models = results?.models ?? [];
+  const best = models.find(m => m.status === 'Selected') ?? models[0];
+  const shap = results?.shap_global?.slice(0, 5) ?? [];
+
+  const totalCustomers = eda?.total_customers?.toLocaleString() ?? '—';
+  const churnRate = eda ? `${(eda.churn_rate * 100).toFixed(1)}%` : '—';
+  const bestAuc = best?.roc_auc?.toFixed(3) ?? '—';
+  const bestCost = best?.cost ? `₹${best.cost.toLocaleString()}` : '—';
+  const bestThreshold = results?.best_threshold ?? '—';
+
+  const modelRows = [...models]
+    .sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity))
+    .map(m => `<tr${m.status === 'Selected' ? ' style="background:#f0fdf4"' : ''}>
+      <td>${m.status === 'Selected' ? '<strong>' + m.name + '</strong>' : m.name}</td>
+      <td>${(m.accuracy * 100).toFixed(2)}%</td>
+      <td>${m.roc_auc.toFixed(4)}</td>
+      <td>${m.pr_auc?.toFixed(4) ?? '—'}</td>
+      <td>${m.cost ? `₹${m.cost.toLocaleString()}` : '—'}</td>
+      <td>${m.status === 'Selected' ? '✅ Selected' : m.status}</td>
+    </tr>`).join('');
+
+  const shapList = shap.map(s => `<li><strong>${s.feature}</strong> (importance: ${s.importance.toFixed(4)})</li>`).join('');
+
   return `<!DOCTYPE html>
 <html><head><title>ChurnLens Report</title>
 <style>
@@ -123,42 +145,38 @@ function generateReportHTML(): string {
   <p>Generated: ${new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
 
   <div style="display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0;">
-    <div class="metric"><div class="value">7,043</div><div class="label">Total Customers</div></div>
-    <div class="metric"><div class="value">26.5%</div><div class="label">Churn Rate</div></div>
-    <div class="metric"><div class="value">0.845</div><div class="label">Best ROC-AUC</div></div>
-    <div class="metric"><div class="value">₹383,500</div><div class="label">Min Business Cost</div></div>
+    <div class="metric"><div class="value">${totalCustomers}</div><div class="label">Total Customers</div></div>
+    <div class="metric"><div class="value">${churnRate}</div><div class="label">Churn Rate</div></div>
+    <div class="metric"><div class="value">${bestAuc}</div><div class="label">Best ROC-AUC</div></div>
+    <div class="metric"><div class="value">${bestCost}</div><div class="label">Min Business Cost</div></div>
   </div>
 
   <h2>Model Comparison</h2>
   <table>
     <tr><th>Model</th><th>Accuracy</th><th>ROC-AUC</th><th>PR-AUC</th><th>Cost</th><th>Status</th></tr>
-    <tr style="background:#f0fdf4"><td><strong>Logistic Regression</strong></td><td>0.7367</td><td>0.8451</td><td>0.6557</td><td>₹392,500</td><td>✅ Selected</td></tr>
-    <tr><td>Stacked Model</td><td>0.7537</td><td>0.8465</td><td>0.6610</td><td>₹400,500</td><td>Runner-up</td></tr>
-    <tr><td>CatBoost</td><td>0.7488</td><td>0.8433</td><td>0.6604</td><td>₹400,500</td><td>Evaluated</td></tr>
-    <tr><td>XGBoost (Calibrated)</td><td>0.7935</td><td>0.8397</td><td>0.6501</td><td>₹423,500</td><td>Evaluated</td></tr>
-    <tr><td>Random Forest</td><td>0.7800</td><td>0.8360</td><td>0.6420</td><td>₹448,000</td><td>Evaluated</td></tr>
+    ${modelRows || '<tr><td colspan="6">No pipeline results available</td></tr>'}
   </table>
 
-  <h2>Key Findings</h2>
-  <div class="highlight">
-    <strong>Top Churn Drivers:</strong> Month-to-month contracts, low tenure, fiber optic internet, no tech support, electronic check payments.
-  </div>
+  <h2>Top Churn Drivers (SHAP)</h2>
+  ${shapList ? `<ol>${shapList}</ol>` : '<p>Run pipeline to see SHAP analysis</p>'}
 
   <h2>Business Impact</h2>
-  <p>At the optimal threshold of <strong>0.13</strong>, the model catches <strong>97% of churners</strong>.</p>
+  <p>At the optimal threshold of <strong>${bestThreshold}</strong>, the model minimises total business cost.</p>
   <table>
-    <tr><td>Default cost (threshold=0.50)</td><td><strong>₹943,500</strong></td></tr>
-    <tr><td>Optimized cost (threshold=0.13)</td><td><strong>₹383,500</strong></td></tr>
-    <tr style="background:#f0fdf4"><td>Annual savings</td><td><strong>₹561,000 (59% reduction)</strong></td></tr>
+    <tr><td>Best Model</td><td><strong>${best?.name ?? '—'}</strong></td></tr>
+    <tr><td>Optimal Threshold</td><td><strong>${bestThreshold}</strong></td></tr>
+    <tr><td>FN Cost</td><td><strong>₹${results?.cost_fn?.toLocaleString() ?? '—'}</strong></td></tr>
+    <tr><td>FP Cost</td><td><strong>₹${results?.cost_fp?.toLocaleString() ?? '—'}</strong></td></tr>
+    <tr style="background:#f0fdf4"><td>Minimum Cost</td><td><strong>${bestCost}</strong></td></tr>
   </table>
 
   <h2>Recommendations</h2>
   <ol>
-    <li><strong>Target month-to-month customers</strong> with contract upgrade offers (12-month discounts)</li>
-    <li><strong>Bundle tech support & security</strong> for fiber optic users — reduces churn by ~18%</li>
+    <li><strong>Target month-to-month customers</strong> with contract upgrade offers</li>
+    <li><strong>Bundle tech support & security</strong> for fiber optic users</li>
     <li><strong>Early engagement program</strong> for new customers (tenure &lt; 6 months)</li>
     <li><strong>Auto-pay incentives</strong> — move electronic check users to automatic payments</li>
-    <li><strong>Deploy the model</strong> with threshold 0.13 for maximum cost savings</li>
+    <li><strong>Deploy the model</strong> with threshold ${bestThreshold} for maximum cost savings</li>
   </ol>
 
   <p style="color:#999; font-size: 11px; margin-top: 40px; border-top: 1px solid #eee; padding-top: 16px;">

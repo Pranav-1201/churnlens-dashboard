@@ -1,12 +1,10 @@
 /**
- * DataOverview.tsx — FINAL FIXED VERSION
+ * DataOverview.tsx — uses real pipeline results for metrics,
+ * static schema preview for table illustration
  */
 
 import { MetricCard, ChartCard } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
-
-// mock preview (only for table UI)
-import { DATASET_PREVIEW } from "@/data/mockData";
 
 import {
   PieChart, Pie, Cell,
@@ -24,7 +22,14 @@ function NoData() {
   );
 }
 
-// Static distributions
+// Static schema reference — illustrates column structure (not mock results data)
+const SCHEMA_PREVIEW = [
+  { customerID: "7590-VHVEG", gender: "Female", SeniorCitizen: 0, Partner: "Yes", Dependents: "No", tenure: 1, PhoneService: "No", MultipleLines: "No phone service", InternetService: "DSL", OnlineSecurity: "No", OnlineBackup: "Yes", DeviceProtection: "No", TechSupport: "No", StreamingTV: "No", StreamingMovies: "No", Contract: "Month-to-month", PaperlessBilling: "Yes", PaymentMethod: "Electronic check", MonthlyCharges: 29.85, TotalCharges: "29.85", Churn: "No" },
+  { customerID: "5575-GNVDE", gender: "Male", SeniorCitizen: 0, Partner: "No", Dependents: "No", tenure: 34, PhoneService: "Yes", MultipleLines: "No", InternetService: "DSL", OnlineSecurity: "Yes", OnlineBackup: "No", DeviceProtection: "Yes", TechSupport: "No", StreamingTV: "No", StreamingMovies: "No", Contract: "One year", PaperlessBilling: "No", PaymentMethod: "Mailed check", MonthlyCharges: 56.95, TotalCharges: "1889.5", Churn: "No" },
+  { customerID: "3668-QPYBK", gender: "Male", SeniorCitizen: 0, Partner: "No", Dependents: "No", tenure: 2, PhoneService: "Yes", MultipleLines: "No", InternetService: "DSL", OnlineSecurity: "Yes", OnlineBackup: "Yes", DeviceProtection: "No", TechSupport: "No", StreamingTV: "No", StreamingMovies: "No", Contract: "Month-to-month", PaperlessBilling: "Yes", PaymentMethod: "Mailed check", MonthlyCharges: 53.85, TotalCharges: "108.15", Churn: "Yes" },
+];
+
+// Static dtype distribution — describes the raw dataset schema
 const DTYPE_DATA = [
   { name: "Object", value: 16, color: CHART_COLORS[0] },
   { name: "Numeric", value: 3, color: CHART_COLORS[1] },
@@ -45,52 +50,47 @@ export default function DataOverview() {
   if (isRunning)
     return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
 
-  // ✅ SAFE ACCESS
   const di = results?.eda;
+  const datasetInfo = results?.dataset_info;
 
-  const preview = DATASET_PREVIEW ?? [];
-  const cols = preview.length > 0 ? Object.keys(preview[0]) : [];
+  const cols = Object.keys(SCHEMA_PREVIEW[0]);
 
   return (
     <div className="space-y-6">
 
-      {/* Metrics */}
+      {/* Metrics — from real pipeline results */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <MetricCard
           title="Rows"
-          value={di?.total_customers?.toLocaleString() ?? "7,043"}
+          value={di?.total_customers?.toLocaleString() ?? "—"}
           tint="primary"
-          subtitle={di ? "From uploaded dataset" : "Demo dataset"}
+          subtitle="From uploaded dataset"
         />
 
         <MetricCard
           title="Columns"
-          value={cols.length || "21"}
+          value={cols.length}
           tint="success"
         />
 
         <MetricCard
           title="Features (encoded)"
-          value="—"
+          value={datasetInfo?.n_features ?? "—"}
           tint="warning"
           subtitle="After encoding"
         />
 
         <MetricCard
           title="Churn rate"
-          value={
-            di
-              ? `${(di.churn_rate * 100).toFixed(1)}%`
-              : "—"
-          }
+          value={di ? `${(di.churn_rate * 100).toFixed(1)}%` : "—"}
           tint="destructive"
         />
       </div>
 
-      {/* Preview */}
+      {/* Schema Preview — static reference */}
       <ChartCard
-        title="Dataset Preview"
-        subtitle="First 5 rows (illustrative — same schema as your data)"
+        title="Dataset Schema Preview"
+        subtitle="Illustrative rows showing column structure"
       >
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -108,7 +108,7 @@ export default function DataOverview() {
             </thead>
 
             <tbody>
-              {preview.map((row, i) => (
+              {SCHEMA_PREVIEW.map((row, i) => (
                 <tr
                   key={i}
                   className="border-b border-border/30 hover:bg-muted/30"

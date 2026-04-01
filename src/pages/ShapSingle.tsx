@@ -1,12 +1,10 @@
 /**
- * ShapSingle.tsx — FINAL FIXED VERSION
+ * ShapSingle.tsx — What-if simulator using real /predict endpoint
+ * No mock data — uses DEFAULT_CUSTOMER_FEATURES from types
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ChartCard } from "@/components/DashboardCards";
-
-// ✅ FIX: use mockData (since ModelMetric file doesn't exist)
-import { SAMPLE_CUSTOMERS } from "@/data/mockData";
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -15,22 +13,38 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { predictChurn } from "@/services/api";
+import { predictChurn, localPredict } from "@/services/api";
 import { usePipelineStore } from "@/stores/pipelineStore";
 import { toast } from "sonner";
 import { Loader2, AlertTriangle, Shield } from "lucide-react";
 import type { CustomerInput, PredictionResult } from "@/services/api";
-import { FEATURE_OPTIONS } from "@/types/api";
-
-// ✅ correct colors source
+import { FEATURE_OPTIONS, DEFAULT_CUSTOMER_FEATURES } from "@/types/api";
 import { CHART_COLORS } from "@/constants/chartColors";
 
 export default function ShapSingle() {
-  const { currentThreshold } = usePipelineStore();
+  const { currentThreshold, backendConnected } = usePipelineStore();
 
-  const [features, setFeatures] = useState<CustomerInput>(
-    SAMPLE_CUSTOMERS[1] as unknown as CustomerInput
-  );
+  const [features, setFeatures] = useState<CustomerInput>({
+    gender: DEFAULT_CUSTOMER_FEATURES.gender,
+    SeniorCitizen: DEFAULT_CUSTOMER_FEATURES.SeniorCitizen,
+    Partner: DEFAULT_CUSTOMER_FEATURES.Partner,
+    Dependents: DEFAULT_CUSTOMER_FEATURES.Dependents,
+    tenure: DEFAULT_CUSTOMER_FEATURES.tenure,
+    PhoneService: DEFAULT_CUSTOMER_FEATURES.PhoneService,
+    MultipleLines: DEFAULT_CUSTOMER_FEATURES.MultipleLines ?? "No",
+    InternetService: DEFAULT_CUSTOMER_FEATURES.InternetService,
+    OnlineSecurity: DEFAULT_CUSTOMER_FEATURES.OnlineSecurity,
+    OnlineBackup: DEFAULT_CUSTOMER_FEATURES.OnlineBackup,
+    DeviceProtection: DEFAULT_CUSTOMER_FEATURES.DeviceProtection,
+    TechSupport: DEFAULT_CUSTOMER_FEATURES.TechSupport,
+    StreamingTV: DEFAULT_CUSTOMER_FEATURES.StreamingTV,
+    StreamingMovies: DEFAULT_CUSTOMER_FEATURES.StreamingMovies,
+    Contract: DEFAULT_CUSTOMER_FEATURES.Contract,
+    PaperlessBilling: DEFAULT_CUSTOMER_FEATURES.PaperlessBilling,
+    PaymentMethod: DEFAULT_CUSTOMER_FEATURES.PaymentMethod,
+    MonthlyCharges: DEFAULT_CUSTOMER_FEATURES.MonthlyCharges,
+    TotalCharges: DEFAULT_CUSTOMER_FEATURES.TotalCharges,
+  });
 
   const [result, setResult] = useState<PredictionResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -43,11 +57,19 @@ export default function ShapSingle() {
       const res = await predictChurn(f);
       setResult(res);
     } catch {
-      toast.error("Prediction failed");
+      // Fallback to local prediction if backend is unavailable
+      const prob = localPredict(f);
+      setResult({
+        probability: prob,
+        prediction: prob >= currentThreshold ? 1 : 0,
+        risk_level: prob >= currentThreshold ? "High" : "Low",
+        threshold_used: currentThreshold,
+        shap_values: {},
+      });
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [currentThreshold]);
 
   useEffect(() => {
     runPrediction(features);
@@ -80,7 +102,7 @@ export default function ShapSingle() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
 
         {/* Feature controls */}
-        <ChartCard title="Customer Features">
+        <ChartCard title="Customer Features" subtitle="Adjust values to see prediction change">
           <div className="space-y-4 max-h-[520px] overflow-y-auto pr-2">
 
             <div>
@@ -102,6 +124,17 @@ export default function ShapSingle() {
                 min={18} max={120} step={0.5}
                 value={[features.MonthlyCharges]}
                 onValueChange={([v]) => updateFeature("MonthlyCharges", v)}
+              />
+            </div>
+
+            <div>
+              <span className="text-sm text-muted-foreground">
+                Total Charges: <strong>${features.TotalCharges}</strong>
+              </span>
+              <Slider
+                min={0} max={9000} step={10}
+                value={[features.TotalCharges]}
+                onValueChange={([v]) => updateFeature("TotalCharges", v)}
               />
             </div>
 
@@ -170,7 +203,48 @@ export default function ShapSingle() {
                 </span>
               )}
             </div>
+
+            <p className="text-xs text-muted-foreground mt-2">
+              Threshold: {currentThreshold} | {backendConnected ? "Backend prediction" : "Local fallback"}
+            </p>
           </div>
+
+          {/* SHAP Waterfall */}
+          {shapValues.length > 0 && (
+            <ChartCard title="Feature Contributions" subtitle="SHAP values for this prediction">
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={shapValues} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis type="number" />
+                  <YAxis type="category" dataKey="feature" width={160} tick={{ fontSize: 10 }} />
+                  <Tooltip formatter={(v: number) => v.toFixed(4)} />
+                  <Bar dataKey="contribution" radius={[0, 4, 4, 0]}>
+                    {shapValues.map((s, i) => (
+                      <Cell key={i} fill={s.contribution > 0 ? CHART_COLORS[3] : CHART_COLORS[1]} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
+
+          {/* Risk / Protective factors */}
+          {(riskFactors.length > 0 || protectiveFactors.length > 0) && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="glass-card p-4">
+                <h4 className="text-xs font-semibold text-destructive mb-2">⚠ Risk Factors</h4>
+                {riskFactors.map((f) => (
+                  <p key={f.feature} className="text-xs text-muted-foreground">{f.feature}</p>
+                ))}
+              </div>
+              <div className="glass-card p-4">
+                <h4 className="text-xs font-semibold text-success mb-2">✓ Protective Factors</h4>
+                {protectiveFactors.map((f) => (
+                  <p key={f.feature} className="text-xs text-muted-foreground">{f.feature}</p>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
