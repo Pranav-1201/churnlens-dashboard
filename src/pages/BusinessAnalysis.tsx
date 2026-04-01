@@ -100,7 +100,7 @@ export default function BusinessAnalysis() {
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
   if (!results || !bestModel) return null;
 
-  const { cost_fn, cost_fp } = results;
+  const { cost_fn = 10000, cost_fp = 500 } = results ?? {};
   const savingsPct = defaultCost > 0 ? ((savings / defaultCost) * 100).toFixed(1) : "0";
 
   return (

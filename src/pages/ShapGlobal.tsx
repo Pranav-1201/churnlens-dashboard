@@ -89,9 +89,9 @@ export default function ShapGlobal() {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          ["Best model", results.best_model],
-          ["Threshold", results.best_threshold],
-          ["Features", results.dataset_info.n_features],
+          ["Best model", results?.best_model ?? '—'],
+          ["Threshold", results?.best_threshold ?? '—'],
+          ["Features", results?.dataset_info?.n_features ?? '—'],
           ["Test samples", results.dataset_info?.test_size ?? 0],
         ].map(([label, value]) => (
           <div key={String(label)} className="glass-card p-4 text-center">

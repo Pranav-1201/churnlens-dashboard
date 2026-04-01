@@ -156,11 +156,11 @@ export default function TunedModel() {
               <p className="text-sm font-medium mb-2">
                 {m.name}{" "}
                 <span className="text-xs text-muted-foreground">
-                  ({m.cv_mean.toFixed(4)} ± {m.cv_std.toFixed(4)})
+                  ({m.cv_mean?.toFixed(4) ?? '—'} ± {m.cv_std?.toFixed(4) ?? '—'})
                 </span>
               </p>
               <div className="flex gap-2">
-                {m.cv_scores.map((s, i) => (
+                {(m.cv_scores ?? []).map((s, i) => (
                   <div key={i} className="flex-1 text-center bg-muted/50 rounded p-2">
                     <p className="text-xs text-muted-foreground">F{i + 1}</p>
                     <p className="text-xs font-mono font-bold">{s.toFixed(4)}</p>

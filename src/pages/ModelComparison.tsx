@@ -155,7 +155,7 @@ export default function ModelComparison() {
                 </tr>
               </thead>
               <tbody>
-                {m.confusion_matrix.map((row, ri) => (
+                {(m.confusion_matrix ?? []).map((row, ri) => (
                   <tr key={ri}>
                     <td>Act {ri}</td>
                     {row.map((cell, ci) => (
