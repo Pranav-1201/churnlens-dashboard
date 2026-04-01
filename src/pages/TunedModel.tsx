@@ -122,7 +122,7 @@ export default function TunedModel() {
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold text-foreground">
-                  {selected.cost ? `₹${selected.cost.toLocaleString()}` : "—"}
+                  {selected.cost ? `${currency}${selected.cost.toLocaleString()}` : "—"}
                 </span>
                 {deltaCost > 0 && (
                   <span className="text-xs text-success flex items-center gap-0.5">
