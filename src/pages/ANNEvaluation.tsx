@@ -34,6 +34,7 @@ const rocData = Array.from({ length: 30 }, (_, i) => {
 });
 
 export default function ANNEvaluation() {
+  const { currency } = usePipelineStore();
   const { results } = usePipelineResults();
 
   // Real best model for comparison — adapts to whatever pipeline found
