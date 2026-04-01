@@ -94,7 +94,7 @@ export default function BusinessAnalysis() {
   }, [results]);
 
   const animatedSavings = useAnimatedCount(savings);
-  const optimalThreshold = bestModel?.threshold ?? 0.13;
+  const optimalThreshold = bestModel?.threshold ?? results?.best_threshold ?? 0.13;
 
   if (noData) return <NoData />;
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
