@@ -127,7 +127,7 @@ export default function ANNEvaluation() {
             <div>
               <p className="text-xs text-muted-foreground">ANN Cost</p>
               <p className="text-lg font-bold text-foreground">
-                ₹{ANN_METRICS.cost.toLocaleString()}
+                {currency}{ANN_METRICS.cost.toLocaleString()}
               </p>
             </div>
             <div>
