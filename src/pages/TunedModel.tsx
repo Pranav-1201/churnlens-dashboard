@@ -57,6 +57,14 @@ export default function TunedModel() {
   const selected = models.find((m) => m.status === "Selected") ?? models[0];
   const runnerUp = models.find((m) => m.status === "Runner-up") ?? models[1];
 
+  if (!selected || !runnerUp) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Need at least 2 models to compare. Run the full pipeline.
+      </div>
+    );
+  }
+
   const deltaAcc = selected.accuracy - runnerUp.accuracy;
   const deltaAuc = selected.roc_auc - runnerUp.roc_auc;
   const deltaCost = (runnerUp.cost ?? 0) - (selected.cost ?? 0); // positive = selected is cheaper
