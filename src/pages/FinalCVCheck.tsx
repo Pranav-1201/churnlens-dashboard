@@ -63,7 +63,7 @@ export default function FinalCVCheck() {
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {models.map((m) => {
-          const foldData = m.cv_scores.map((score, i) => ({
+          const foldData = (m.cv_scores ?? []).map((score, i) => ({
             fold: `Fold ${i + 1}`,
             score: +score.toFixed(4),
           }));
