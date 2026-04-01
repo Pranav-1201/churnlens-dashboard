@@ -8,7 +8,7 @@
 
 import { MetricCard, ChartCard, ConfusionMatrix } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
-import { ModelMetric } from "@/types/api";
+import { usePipelineStore } from "@/stores/pipelineStore";
 import {
   AreaChart, Area, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
