@@ -16,7 +16,9 @@ export default function SettingsPage() {
 
   const testConnection = async () => {
     setTesting(true);
+    // setApiBaseUrl now also updates the axios instance via setBaseUrl
     setApiBaseUrl(url);
+
     const response = await checkHealth();
     const ok = response.status === "ok";
 
