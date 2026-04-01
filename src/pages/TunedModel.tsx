@@ -75,7 +75,7 @@ export default function TunedModel() {
             <MetricCard title="PR-AUC" value={runnerUp.pr_auc?.toFixed(4) ?? "—"} tint="warning" />
             <MetricCard
               title="Business Cost"
-              value={runnerUp.cost ? `₹${runnerUp.cost.toLocaleString()}` : "—"}
+              value={runnerUp.cost ? `${currency}${runnerUp.cost.toLocaleString()}` : "—"}
               tint="destructive"
             />
           </div>
