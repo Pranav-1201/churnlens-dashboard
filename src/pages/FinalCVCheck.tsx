@@ -33,7 +33,7 @@ export default function FinalCVCheck() {
   // ✅ FIX 2 — safe guard
   if (!models || models.length === 0) return <NoData />;
 
-  const allScores = models.flatMap((m) => m.cv_scores || []);
+  const allScores = models.flatMap((m) => m.cv_scores ?? []);
 
   const minScore = Math.floor(Math.min(...allScores) * 1000) / 1000 - 0.005;
   const maxScore = Math.ceil(Math.max(...allScores) * 1000) / 1000 + 0.005;
