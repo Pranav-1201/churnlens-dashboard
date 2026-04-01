@@ -18,29 +18,36 @@ export default function DashboardHome() {
   const navigate = useNavigate();
   const { results, noData, isRunning } = usePipelineResults();
 
-  if (noData) return <div>No data yet</div>;
-  if (isRunning) return <div>Pipeline running...</div>;
+  if (noData) return (
+    <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+      Run the pipeline first to see the dashboard
+    </div>
+  );
+  if (isRunning) return <div className="text-muted-foreground p-4">Pipeline running...</div>;
   if (!results) return null;
 
-  const models = results.models;
-
-  const best = models.find((m) => m.status === 'Selected');
-
-  const topChurnDrivers = results.shap_global.slice(0, 5);
+  const models = results?.models ?? [];
+  const best = models.find((m) => m.status === 'Selected') ?? models[0];
+  const eda = results?.eda;
+  const topChurnDrivers = results?.shap_global?.slice(0, 5) ?? [];
 
   return (
     <div className="space-y-6">
 
-      {/* KPIs */}
+      {/* KPIs — all from real pipeline results */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard title="Total Customers" value="7,043" icon={<Users />} />
+        <MetricCard
+          title="Total Customers"
+          value={eda?.total_customers?.toLocaleString() ?? '—'}
+          icon={<Users />}
+        />
 
         <MetricCard
           title="Churn Rate"
-          value="26.5%"
+          value={eda?.churn_rate != null ? `${(eda.churn_rate * 100).toFixed(1)}%` : '—'}
           icon={<TrendingDown />}
           tint="destructive"
-          subtitle="1,869 churned"
+          subtitle={eda?.churn_count != null ? `${eda.churn_count.toLocaleString()} churned` : undefined}
         />
 
         <MetricCard
@@ -93,19 +100,21 @@ export default function DashboardHome() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <th>Model</th>
-                <th>Accuracy</th>
-                <th>ROC-AUC</th>
-                <th>Cost</th>
+                <th className="text-left py-2 text-muted-foreground font-medium">Model</th>
+                <th className="text-left py-2 text-muted-foreground font-medium">Accuracy</th>
+                <th className="text-left py-2 text-muted-foreground font-medium">ROC-AUC</th>
+                <th className="text-left py-2 text-muted-foreground font-medium">Cost</th>
+                <th className="text-left py-2 text-muted-foreground font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {models.map((m) => (
-                <tr key={m.name}>
-                  <td>{m.name}</td>
-                  <td>{m.accuracy.toFixed(4)}</td>
-                  <td>{m.roc_auc.toFixed(4)}</td>
-                  <td>{m.cost ?? '—'}</td>
+              {[...models].sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity)).map((m) => (
+                <tr key={m.name} className={`border-b border-border/30 ${m.status === 'Selected' ? 'bg-warning/5' : ''}`}>
+                  <td className="py-2 font-medium">{m.name}</td>
+                  <td className="py-2">{(m.accuracy * 100).toFixed(2)}%</td>
+                  <td className="py-2">{m.roc_auc.toFixed(4)}</td>
+                  <td className="py-2">{m.cost ? `${currency}${m.cost.toLocaleString()}` : '—'}</td>
+                  <td className="py-2"><StatusBadge status={m.status} /></td>
                 </tr>
               ))}
             </tbody>
@@ -115,11 +124,24 @@ export default function DashboardHome() {
 
       {/* Actions */}
       <ChartCard title="Quick Actions">
-        <div className="space-y-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={() => navigate('/dashboard/shap-single')}>Predict</Button>
-          <Button onClick={() => navigate('/dashboard/shap-global')}>SHAP</Button>
-          <Button onClick={() => exportReportAsPDF()}>
-            <FileText className="w-3.5 h-3.5 mr-1" /> Export
+          <Button variant="outline" onClick={() => navigate('/dashboard/shap-global')}>SHAP</Button>
+          <Button variant="outline" onClick={() => exportToCSV(
+            models.map(m => ({
+              Model: m.name,
+              Accuracy: m.accuracy,
+              'ROC-AUC': m.roc_auc,
+              'PR-AUC': m.pr_auc ?? '',
+              Cost: m.cost ?? '',
+              Status: m.status,
+            })),
+            'churnlens-models'
+          )}>
+            <Download className="w-3.5 h-3.5 mr-1" /> CSV
+          </Button>
+          <Button variant="outline" onClick={() => exportReportAsPDF(results)}>
+            <FileText className="w-3.5 h-3.5 mr-1" /> PDF Report
           </Button>
         </div>
       </ChartCard>

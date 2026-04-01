@@ -26,10 +26,10 @@ export default function DashboardHome() {
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline running...</div>;
   if (!results) return null;
 
-  const models = results.models;
-  const best = models.find((m) => m.status === 'Selected');
-  const eda = results.eda;
-  const topChurnDrivers = results.shap_global.slice(0, 5);
+  const models = results?.models ?? [];
+  const best = models.find((m) => m.status === 'Selected') ?? models[0];
+  const eda = results?.eda;
+  const topChurnDrivers = results?.shap_global?.slice(0, 5) ?? [];
 
   return (
     <div className="space-y-6">
@@ -38,16 +38,16 @@ export default function DashboardHome() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
           title="Total Customers"
-          value={eda.total_customers.toLocaleString()}
+          value={eda?.total_customers?.toLocaleString() ?? '—'}
           icon={<Users />}
         />
 
         <MetricCard
           title="Churn Rate"
-          value={`${(eda.churn_rate * 100).toFixed(1)}%`}
+          value={eda?.churn_rate != null ? `${(eda.churn_rate * 100).toFixed(1)}%` : '—'}
           icon={<TrendingDown />}
           tint="destructive"
-          subtitle={`${eda.churn_count.toLocaleString()} churned`}
+          subtitle={eda?.churn_count != null ? `${eda.churn_count.toLocaleString()} churned` : undefined}
         />
 
         <MetricCard

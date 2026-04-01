@@ -73,11 +73,12 @@ export default function BusinessAnalysis() {
     if (!results) return { bestModel: null, costCurve: [], defaultCost: 0, optimalCost: 0, savings: 0 };
 
     const best = results.models.find((m) => m.status === "Selected") ?? results.models[0];
+    if (!best?.confusion_matrix) return { bestModel: null, costCurve: [], defaultCost: 0, optimalCost: 0, savings: 0 };
     const curve = buildCostCurve(
       best.confusion_matrix,
-      best.threshold,
-      results.cost_fn,
-      results.cost_fp
+      best.threshold ?? results.best_threshold ?? 0.13,
+      results.cost_fn ?? 10000,
+      results.cost_fp ?? 500
     );
 
     const defaultRow = curve.find((d) => Math.abs(d.threshold - 0.50) < 0.015) ?? curve[curve.length - 1];
@@ -93,13 +94,13 @@ export default function BusinessAnalysis() {
   }, [results]);
 
   const animatedSavings = useAnimatedCount(savings);
-  const optimalThreshold = bestModel?.threshold ?? 0.13;
+  const optimalThreshold = bestModel?.threshold ?? results?.best_threshold ?? 0.13;
 
   if (noData) return <NoData />;
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
   if (!results || !bestModel) return null;
 
-  const { cost_fn, cost_fp } = results;
+  const { cost_fn = 10000, cost_fp = 500 } = results ?? {};
   const savingsPct = defaultCost > 0 ? ((savings / defaultCost) * 100).toFixed(1) : "0";
 
   return (

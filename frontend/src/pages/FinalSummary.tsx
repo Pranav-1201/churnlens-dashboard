@@ -26,20 +26,27 @@ export default function FinalSummary() {
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
   if (!results) return null;
 
-  const { models, best_model, best_threshold, cost_fn, cost_fp, dataset_info } = results;
+  const models = results?.models ?? [];
+  const best_model = results?.best_model ?? '—';
+  const best_threshold = results?.best_threshold ?? 0;
+  const cost_fn = results?.cost_fn ?? 0;
+  const cost_fp = results?.cost_fp ?? 0;
+  const dataset_info = results?.dataset_info;
   const best = models.find((m) => m.status === "Selected") ?? models[0];
+
+  if (!best) return <NoData />;
 
   // Deployment checklist — static facts + dynamic checks from real results
   const checklist = [
     { text: `Best model selected: ${best_model}`, done: !!best_model },
     { text: `Optimal threshold: ${best_threshold}`, done: best_threshold > 0 },
     {
-      text: `Cross-validation stable (CV σ < 0.015): ${best.cv_std < 0.015 ? "yes" : "needs review"}`,
-      done: best.cv_std < 0.015,
+      text: `Cross-validation stable (CV σ < 0.015): ${(best.cv_std ?? 0) < 0.015 ? "yes" : "needs review"}`,
+      done: (best.cv_std ?? 0) < 0.015,
     },
-    { text: "SHAP global importances computed", done: results.shap_global.length > 0 },
-    { text: "Per-customer explanations available", done: results.customer_shap.length > 0 },
-    { text: `Dataset: ${dataset_info.total_rows.toLocaleString()} rows, ${dataset_info.n_features} features`, done: true },
+    { text: "SHAP global importances computed", done: (results?.shap_global?.length ?? 0) > 0 },
+    { text: "Per-customer explanations available", done: (results?.customer_shap?.length ?? 0) > 0 },
+    { text: `Dataset: ${dataset_info?.total_rows?.toLocaleString() ?? '—'} rows, ${dataset_info?.n_features ?? '—'} features`, done: !!dataset_info },
     { text: "Calibration: verify isotonic vs sigmoid on hold-out", done: false },
     { text: "Add input validation for null/missing fields in production", done: false },
   ];
@@ -70,13 +77,15 @@ export default function FinalSummary() {
         </div>
 
         {/* CV scores */}
-        <div className="flex justify-center gap-2 flex-wrap mt-2">
-          <span className="text-xs text-muted-foreground">
-            5-fold CV: {best.cv_scores.map((s) => s.toFixed(4)).join(", ")}
-          </span>
-        </div>
+        {(best.cv_scores?.length ?? 0) > 0 && (
+          <div className="flex justify-center gap-2 flex-wrap mt-2">
+            <span className="text-xs text-muted-foreground">
+              5-fold CV: {best.cv_scores.map((s) => s.toFixed(4)).join(", ")}
+            </span>
+          </div>
+        )}
         <div className="text-xs text-muted-foreground">
-          Mean: {best.cv_mean?.toFixed(4)} ± {best.cv_std?.toFixed(4)}
+          Mean: {best.cv_mean?.toFixed(4) ?? '—'} ± {best.cv_std?.toFixed(4) ?? '—'}
         </div>
       </div>
 
@@ -127,11 +136,11 @@ export default function FinalSummary() {
       <ChartCard title="Dataset Summary">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
-            ["Total rows", dataset_info.total_rows.toLocaleString()],
-            ["Train size", dataset_info.train_size.toLocaleString()],
-            ["Test size", dataset_info.test_size.toLocaleString()],
-            ["Features", dataset_info.n_features],
-            ["Churn rate", `${(dataset_info.churn_rate * 100).toFixed(1)}%`],
+            ["Total rows", dataset_info?.total_rows?.toLocaleString() ?? '—'],
+            ["Train size", dataset_info?.train_size?.toLocaleString() ?? '—'],
+            ["Test size", dataset_info?.test_size?.toLocaleString() ?? '—'],
+            ["Features", dataset_info?.n_features ?? '—'],
+            ["Churn rate", dataset_info?.churn_rate != null ? `${(dataset_info.churn_rate * 100).toFixed(1)}%` : '—'],
           ].map(([label, value]) => (
             <div key={String(label)} className="text-center p-3 bg-muted/30 rounded-lg">
               <p className="text-xs text-muted-foreground">{label}</p>

@@ -1,73 +1,150 @@
 /**
- * Landing.tsx — FINAL MERGED VERSION
- *
- * - Real backend pipeline execution ✅
- * - Your UI (drag-drop + cards + design) ✅
- * - Removes fake pipeline simulation ❌
+ * Landing.tsx — with restored pipeline execution UI
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Upload, PlayCircle, ArrowRight, Loader2, Wifi, WifiOff } from "lucide-react";
+import { Upload, PlayCircle, ArrowRight, Loader2, Wifi, WifiOff, CheckCircle, Circle } from "lucide-react";
 import { usePipelineStore } from "@/stores/pipelineStore";
 import { Button } from "@/components/ui/button";
 import { checkHealth } from "@/services/api";
 import { toast } from "sonner";
 
 // ============================================
-// REAL PIPELINE OVERLAY (FROM STORE)
+// PIPELINE SECTIONS (UI labels for step tracking)
 // ============================================
+const PIPELINE_SECTIONS = [
+  "System Check",
+  "Data Loading",
+  "EDA & Visualization",
+  "Data Cleaning",
+  "Feature Engineering",
+  "Encoding",
+  "Train/Test Split",
+  "Model Training",
+  "Model Comparison",
+  "Threshold Optimization",
+  "Cross-Validation",
+  "SHAP Analysis",
+  "Business Analysis",
+  "Final Summary",
+];
 
+// ============================================
+// PIPELINE OVERLAY — step-by-step execution screen
+// ============================================
 function PipelineOverlay() {
   const { phase, progress, currentStep, logs, error } = usePipelineStore();
+  const logEndRef = useRef<HTMLDivElement>(null);
 
-  if (phase === "idle") return null;
+  // Auto-scroll logs
+  useEffect(() => {
+    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [logs]);
+
+  if (phase === "idle" || phase === "complete") return null;
+
+  // Determine which sections are complete based on progress
+  const completedSections = Math.floor((progress / 100) * PIPELINE_SECTIONS.length);
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/95 backdrop-blur-md flex items-center justify-center">
-      <div className="w-full max-w-xl bg-card border border-border rounded-xl p-6 space-y-4">
+    <div className="fixed inset-0 z-50 bg-background/98 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="w-full max-w-5xl bg-card border border-border rounded-xl overflow-hidden shadow-2xl">
 
-        <div>
-          <h2 className="text-lg font-semibold">
-            {phase === "uploading"
-              ? "Uploading dataset..."
-              : phase === "failed"
-              ? "Pipeline failed"
-              : "Running ML Pipeline"}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {phase === "running" ? currentStep : ""}
-          </p>
-        </div>
+        {/* Header */}
+        <div className="p-5 border-b border-border">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-foreground">
+              {phase === "uploading"
+                ? "📤 Uploading dataset..."
+                : phase === "failed"
+                ? "❌ Pipeline failed"
+                : "🔬 Running ML Pipeline"}
+            </h2>
+            <span className="text-sm font-mono text-primary">{progress}%</span>
+          </div>
 
-        {/* Progress */}
-        {phase !== "failed" && (
-          <div>
-            <div className="h-2 bg-muted rounded overflow-hidden">
+          {/* Progress bar */}
+          {phase !== "failed" && (
+            <div className="h-2 bg-muted rounded-full overflow-hidden">
               <div
-                className="h-full bg-primary transition-all"
+                className="h-full bg-primary transition-all duration-500 ease-out rounded-full"
                 style={{ width: `${progress}%` }}
               />
             </div>
-            <div className="text-xs text-muted-foreground mt-1 flex justify-between">
-              <span>{progress}%</span>
-              <span>{currentStep}</span>
-            </div>
-          </div>
-        )}
+          )}
+          {currentStep && phase === "running" && (
+            <p className="text-xs text-muted-foreground mt-2">{currentStep}</p>
+          )}
+        </div>
 
-        {/* Logs */}
-        {logs.length > 0 && (
-          <div className="h-32 overflow-y-auto text-xs font-mono bg-muted p-3 rounded">
-            {logs.slice(-20).map((l, i) => (
-              <div key={i}>{l.step}</div>
+        {/* Two-panel layout */}
+        <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] h-[400px]">
+
+          {/* Left: Section checklist */}
+          <div className="border-r border-border overflow-y-auto p-4 space-y-1 hidden md:block">
+            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-3 font-semibold">
+              Pipeline Sections
+            </p>
+            {PIPELINE_SECTIONS.map((section, i) => {
+              const isDone = i < completedSections;
+              const isCurrent = i === completedSections && phase === "running";
+              return (
+                <div
+                  key={section}
+                  className={`flex items-center gap-2.5 py-1.5 px-2 rounded-md text-sm transition-colors ${
+                    isCurrent
+                      ? "bg-primary/10 text-primary font-medium"
+                      : isDone
+                      ? "text-success"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {isDone ? (
+                    <CheckCircle className="w-3.5 h-3.5 text-success shrink-0" />
+                  ) : isCurrent ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-primary shrink-0" />
+                  ) : (
+                    <Circle className="w-3.5 h-3.5 shrink-0 opacity-30" />
+                  )}
+                  <span className="truncate">{section}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Right: Log messages */}
+          <div className="overflow-y-auto p-4 bg-muted/30 font-mono text-xs">
+            <p className="text-muted-foreground mb-3 font-sans text-xs uppercase tracking-wider font-semibold">
+              Execution Log
+            </p>
+            {logs.length === 0 && phase !== "failed" && (
+              <p className="text-muted-foreground italic">Waiting for logs...</p>
+            )}
+            {logs.map((l, i) => (
+              <div key={i} className="py-0.5 text-foreground/80">
+                <span className="text-muted-foreground mr-2">
+                  [{(l.progress ?? 0).toString().padStart(3, ' ')}%]
+                </span>
+                {l.step}
+              </div>
             ))}
+            {phase === "failed" && error && (
+              <div className="mt-3 text-destructive font-semibold">
+                ❌ {error}
+              </div>
+            )}
+            <div ref={logEndRef} />
           </div>
-        )}
+        </div>
 
-        {/* Error */}
+        {/* Footer with error retry */}
         {phase === "failed" && (
-          <div className="text-destructive text-sm">{error}</div>
+          <div className="p-4 border-t border-border flex justify-end">
+            <Button variant="outline" size="sm" onClick={() => usePipelineStore.getState().reset()}>
+              Close
+            </Button>
+          </div>
         )}
       </div>
     </div>
@@ -100,7 +177,7 @@ export default function Landing() {
     document.documentElement.classList.toggle("dark", isDark);
   }, [isDark]);
 
-  // Backend health check
+  // Backend health check — graceful (checkHealth now catches internally)
   useEffect(() => {
     checkHealth()
       .then((res) => {

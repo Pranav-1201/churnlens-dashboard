@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -10,6 +9,24 @@ import {
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
+
+// Slug → possible backend model names (must match ModelPage.tsx)
+const MODEL_SLUG_NAMES: Record<string, string[]> = {
+  'logistic': ['Logistic Regression', 'Logistic'],
+  'decision-tree': ['Decision Tree', 'DecisionTree'],
+  'random-forest': ['Random Forest', 'RandomForest'],
+  'xgboost': ['XGBoost', 'XGBoost (Calibrated)', 'xgboost'],
+  'lightgbm': ['LightGBM', 'lightgbm'],
+  'catboost': ['CatBoost', 'catboost'],
+  'stacking': ['Stacked Model', 'Stacking Model', 'Stacking', 'StackedModel'],
+};
+
+function isModelAvailable(slug: string, modelNames: string[]): boolean {
+  const candidates = MODEL_SLUG_NAMES[slug] ?? [];
+  return candidates.some((c) =>
+    modelNames.some((n) => n.toLowerCase() === c.toLowerCase())
+  );
+}
 
 const NAV_GROUPS = [
   {
@@ -78,7 +95,10 @@ interface SidebarProps {
 
 export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
-  const { isDark, toggleTheme } = usePipelineStore();
+  const { isDark, toggleTheme, results } = usePipelineStore();
+
+  // Get available model names from results
+  const availableModelNames = results?.models?.map((m) => m.name) ?? [];
 
   return (
     <motion.aside
@@ -119,6 +139,12 @@ export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
             <ul className="mt-1 space-y-0.5">
               {group.items.map((item) => {
                 const active = location.pathname === item.path;
+
+                // Check if this is a model link and whether the model is available
+                const isModelLink = item.path.startsWith('/dashboard/models/');
+                const modelSlug = isModelLink ? item.path.split('/').pop() ?? '' : '';
+                const modelAvailable = !isModelLink || availableModelNames.length === 0 || isModelAvailable(modelSlug, availableModelNames);
+
                 return (
                   <li key={item.path}>
                     <Link
@@ -127,12 +153,18 @@ export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
                         "flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm transition-colors duration-200",
                         active
                           ? "bg-primary/10 text-primary border-l-2 border-primary"
-                          : "text-sidebar-foreground hover:bg-sidebar-accent"
+                          : modelAvailable
+                          ? "text-sidebar-foreground hover:bg-sidebar-accent"
+                          : "text-sidebar-foreground/40 hover:bg-sidebar-accent/50"
                       )}
                       title={collapsed ? item.label : undefined}
                     >
-                      <item.icon className="w-4 h-4 shrink-0" />
-                      {!collapsed && <span className="truncate">{item.label}</span>}
+                      <item.icon className={cn("w-4 h-4 shrink-0", !modelAvailable && !active && "opacity-40")} />
+                      {!collapsed && (
+                        <span className={cn("truncate", !modelAvailable && !active && "opacity-40")}>
+                          {item.label}
+                        </span>
+                      )}
                     </Link>
                   </li>
                 );

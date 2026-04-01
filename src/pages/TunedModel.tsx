@@ -57,6 +57,14 @@ export default function TunedModel() {
   const selected = models.find((m) => m.status === "Selected") ?? models[0];
   const runnerUp = models.find((m) => m.status === "Runner-up") ?? models[1];
 
+  if (!selected || !runnerUp) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Need at least 2 models to compare. Run the full pipeline.
+      </div>
+    );
+  }
+
   const deltaAcc = selected.accuracy - runnerUp.accuracy;
   const deltaAuc = selected.roc_auc - runnerUp.roc_auc;
   const deltaCost = (runnerUp.cost ?? 0) - (selected.cost ?? 0); // positive = selected is cheaper
@@ -148,11 +156,11 @@ export default function TunedModel() {
               <p className="text-sm font-medium mb-2">
                 {m.name}{" "}
                 <span className="text-xs text-muted-foreground">
-                  ({m.cv_mean.toFixed(4)} ± {m.cv_std.toFixed(4)})
+                  ({m.cv_mean?.toFixed(4) ?? '—'} ± {m.cv_std?.toFixed(4) ?? '—'})
                 </span>
               </p>
               <div className="flex gap-2">
-                {m.cv_scores.map((s, i) => (
+                {(m.cv_scores ?? []).map((s, i) => (
                   <div key={i} className="flex-1 text-center bg-muted/50 rounded p-2">
                     <p className="text-xs text-muted-foreground">F{i + 1}</p>
                     <p className="text-xs font-mono font-bold">{s.toFixed(4)}</p>

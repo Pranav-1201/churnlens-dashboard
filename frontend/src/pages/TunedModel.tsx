@@ -8,6 +8,7 @@
 
 import { ChartCard, MetricCard, ConfusionMatrix } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
+import { usePipelineStore } from "@/stores/pipelineStore";
 import { ArrowUp, ArrowDown, Minus } from "lucide-react";
 
 function NoData() {
@@ -43,6 +44,7 @@ function Delta({ value, label }: { value: number; label: string }) {
 }
 
 export default function TunedModel() {
+  const { currency } = usePipelineStore();
   const { results, noData, isRunning } = usePipelineResults();
 
   if (noData) return <NoData />;
@@ -54,6 +56,14 @@ export default function TunedModel() {
   // Selected = best (lowest cost), Runner-up = second best
   const selected = models.find((m) => m.status === "Selected") ?? models[0];
   const runnerUp = models.find((m) => m.status === "Runner-up") ?? models[1];
+
+  if (!selected || !runnerUp) {
+    return (
+      <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+        Need at least 2 models to compare. Run the full pipeline.
+      </div>
+    );
+  }
 
   const deltaAcc = selected.accuracy - runnerUp.accuracy;
   const deltaAuc = selected.roc_auc - runnerUp.roc_auc;
@@ -73,7 +83,7 @@ export default function TunedModel() {
             <MetricCard title="PR-AUC" value={runnerUp.pr_auc?.toFixed(4) ?? "—"} tint="warning" />
             <MetricCard
               title="Business Cost"
-              value={runnerUp.cost ? `₹${runnerUp.cost.toLocaleString()}` : "—"}
+              value={runnerUp.cost ? `${currency}${runnerUp.cost.toLocaleString()}` : "—"}
               tint="destructive"
             />
           </div>
@@ -120,12 +130,12 @@ export default function TunedModel() {
               </span>
               <div className="flex items-center gap-2">
                 <span className="text-2xl font-bold text-foreground">
-                  {selected.cost ? `₹${selected.cost.toLocaleString()}` : "—"}
+                  {selected.cost ? `${currency}${selected.cost.toLocaleString()}` : "—"}
                 </span>
                 {deltaCost > 0 && (
                   <span className="text-xs text-success flex items-center gap-0.5">
                     <ArrowDown className="w-3 h-3" />
-                    ₹{deltaCost.toLocaleString()} cheaper
+                    {currency}{deltaCost.toLocaleString()} cheaper
                   </span>
                 )}
               </div>
@@ -146,11 +156,11 @@ export default function TunedModel() {
               <p className="text-sm font-medium mb-2">
                 {m.name}{" "}
                 <span className="text-xs text-muted-foreground">
-                  ({m.cv_mean.toFixed(4)} ± {m.cv_std.toFixed(4)})
+                  ({m.cv_mean?.toFixed(4) ?? '—'} ± {m.cv_std?.toFixed(4) ?? '—'})
                 </span>
               </p>
               <div className="flex gap-2">
-                {m.cv_scores.map((s, i) => (
+                {(m.cv_scores ?? []).map((s, i) => (
                   <div key={i} className="flex-1 text-center bg-muted/50 rounded p-2">
                     <p className="text-xs text-muted-foreground">F{i + 1}</p>
                     <p className="text-xs font-mono font-bold">{s.toFixed(4)}</p>
@@ -167,7 +177,7 @@ export default function TunedModel() {
         <p className="text-sm text-muted-foreground">
           <strong className="text-foreground">Selection rationale:</strong>{" "}
           {selected.name} was selected over {runnerUp.name} because it minimises
-          the business cost function (FN×₹10,000 + FP×₹500).
+          the business cost function (FN×{currency}{results.cost_fn.toLocaleString()} + FP×{currency}{results.cost_fp.toLocaleString()}).
           {Math.abs(deltaAuc) < 0.001
             ? " ROC-AUC is essentially identical between the two — cost is the deciding factor."
             : ` ROC-AUC difference: ${(deltaAuc * 100).toFixed(3)}%.`}

@@ -33,7 +33,7 @@ export default function FinalCVCheck() {
   // ✅ FIX 2 — safe guard
   if (!models || models.length === 0) return <NoData />;
 
-  const allScores = models.flatMap((m) => m.cv_scores || []);
+  const allScores = models.flatMap((m) => m.cv_scores ?? []);
 
   const minScore = Math.floor(Math.min(...allScores) * 1000) / 1000 - 0.005;
   const maxScore = Math.ceil(Math.max(...allScores) * 1000) / 1000 + 0.005;
@@ -51,8 +51,8 @@ export default function FinalCVCheck() {
             }`}
           >
             <p className="text-xs text-muted-foreground truncate">{m.name}</p>
-            <p className="text-xl font-bold mt-1">{m.cv_mean.toFixed(4)}</p>
-            <p className="text-xs text-muted-foreground">±{m.cv_std.toFixed(4)}</p>
+            <p className="text-xl font-bold mt-1">{m.cv_mean?.toFixed(4) ?? '—'}</p>
+            <p className="text-xs text-muted-foreground">±{m.cv_std?.toFixed(4) ?? '—'}</p>
             {m.status === "Selected" && (
               <span className="text-xs text-warning mt-1 block">Selected</span>
             )}
@@ -63,7 +63,7 @@ export default function FinalCVCheck() {
       {/* Charts */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {models.map((m) => {
-          const foldData = m.cv_scores.map((score, i) => ({
+          const foldData = (m.cv_scores ?? []).map((score, i) => ({
             fold: `Fold ${i + 1}`,
             score: +score.toFixed(4),
           }));
@@ -72,7 +72,7 @@ export default function FinalCVCheck() {
             <ChartCard
               key={m.name}
               title={m.name}
-              subtitle={`Mean: ${m.cv_mean.toFixed(4)} ± ${m.cv_std.toFixed(4)}`}
+              subtitle={`Mean: ${m.cv_mean?.toFixed(4) ?? '—'} ± ${m.cv_std?.toFixed(4) ?? '—'}`}
             >
               <ResponsiveContainer width="100%" height={150}>
                 <BarChart data={foldData}>
@@ -117,13 +117,13 @@ export default function FinalCVCheck() {
               {models.map((m) => (
                 <tr key={m.name}>
                   <td>{m.name}</td>
-                  {m.cv_scores.map((s, i) => (
+                  {(m.cv_scores ?? []).map((s, i) => (
                     <td key={i}>{s.toFixed(4)}</td>
                   ))}
-                  <td>{m.cv_mean.toFixed(4)}</td>
-                  <td>{m.cv_std.toFixed(4)}</td>
+                  <td>{m.cv_mean?.toFixed(4) ?? '—'}</td>
+                  <td>{m.cv_std?.toFixed(4) ?? '—'}</td>
                   <td>
-                    {m.cv_std < 0.015 ? "✓ Stable" : "⚠ Review"}
+                    {(m.cv_std ?? 0) < 0.015 ? "✓ Stable" : "⚠ Review"}
                   </td>
                 </tr>
               ))}
