@@ -77,13 +77,15 @@ export default function FinalSummary() {
         </div>
 
         {/* CV scores */}
-        <div className="flex justify-center gap-2 flex-wrap mt-2">
-          <span className="text-xs text-muted-foreground">
-            5-fold CV: {best.cv_scores.map((s) => s.toFixed(4)).join(", ")}
-          </span>
-        </div>
+        {(best.cv_scores?.length ?? 0) > 0 && (
+          <div className="flex justify-center gap-2 flex-wrap mt-2">
+            <span className="text-xs text-muted-foreground">
+              5-fold CV: {best.cv_scores.map((s) => s.toFixed(4)).join(", ")}
+            </span>
+          </div>
+        )}
         <div className="text-xs text-muted-foreground">
-          Mean: {best.cv_mean?.toFixed(4)} ± {best.cv_std?.toFixed(4)}
+          Mean: {best.cv_mean?.toFixed(4) ?? '—'} ± {best.cv_std?.toFixed(4) ?? '—'}
         </div>
       </div>
 
