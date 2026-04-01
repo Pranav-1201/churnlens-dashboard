@@ -72,7 +72,7 @@ export default function FinalCVCheck() {
             <ChartCard
               key={m.name}
               title={m.name}
-              subtitle={`Mean: ${m.cv_mean.toFixed(4)} ± ${m.cv_std.toFixed(4)}`}
+              subtitle={`Mean: ${m.cv_mean?.toFixed(4) ?? '—'} ± ${m.cv_std?.toFixed(4) ?? '—'}`}
             >
               <ResponsiveContainer width="100%" height={150}>
                 <BarChart data={foldData}>
