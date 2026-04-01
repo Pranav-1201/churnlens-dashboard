@@ -40,7 +40,7 @@ export default function ModelComparison() {
   if (isRunning) return <div className="text-muted-foreground">Pipeline is running...</div>;
   if (!results) return null;
 
-  const { models, best_model, best_threshold, cost_fn, cost_fp } = results;
+  const { models = [], best_model = '—', best_threshold = 0, cost_fn = 0, cost_fp = 0 } = results ?? {};
 
   // Sorting
   const sorted = [...models].sort((a, b) => (a.cost ?? Infinity) - (b.cost ?? Infinity));
