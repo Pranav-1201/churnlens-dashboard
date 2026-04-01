@@ -26,10 +26,10 @@ export default function DashboardHome() {
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline running...</div>;
   if (!results) return null;
 
-  const models = results.models;
-  const best = models.find((m) => m.status === 'Selected');
-  const eda = results.eda;
-  const topChurnDrivers = results.shap_global.slice(0, 5);
+  const models = results?.models ?? [];
+  const best = models.find((m) => m.status === 'Selected') ?? models[0];
+  const eda = results?.eda;
+  const topChurnDrivers = results?.shap_global?.slice(0, 5) ?? [];
 
   return (
     <div className="space-y-6">
