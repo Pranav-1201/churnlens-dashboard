@@ -117,11 +117,11 @@ export default function FinalCVCheck() {
               {models.map((m) => (
                 <tr key={m.name}>
                   <td>{m.name}</td>
-                  {m.cv_scores.map((s, i) => (
+                  {(m.cv_scores ?? []).map((s, i) => (
                     <td key={i}>{s.toFixed(4)}</td>
                   ))}
-                  <td>{m.cv_mean.toFixed(4)}</td>
-                  <td>{m.cv_std.toFixed(4)}</td>
+                  <td>{m.cv_mean?.toFixed(4) ?? '—'}</td>
+                  <td>{m.cv_std?.toFixed(4) ?? '—'}</td>
                   <td>
                     {m.cv_std < 0.015 ? "✓ Stable" : "⚠ Review"}
                   </td>
