@@ -44,10 +44,10 @@ export default function DashboardHome() {
 
         <MetricCard
           title="Churn Rate"
-          value={`${(eda.churn_rate * 100).toFixed(1)}%`}
+          value={eda?.churn_rate != null ? `${(eda.churn_rate * 100).toFixed(1)}%` : '—'}
           icon={<TrendingDown />}
           tint="destructive"
-          subtitle={`${eda.churn_count.toLocaleString()} churned`}
+          subtitle={eda?.churn_count != null ? `${eda.churn_count.toLocaleString()} churned` : undefined}
         />
 
         <MetricCard

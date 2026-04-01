@@ -136,11 +136,11 @@ export default function FinalSummary() {
       <ChartCard title="Dataset Summary">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           {[
-            ["Total rows", dataset_info.total_rows.toLocaleString()],
-            ["Train size", dataset_info.train_size.toLocaleString()],
-            ["Test size", dataset_info.test_size.toLocaleString()],
-            ["Features", dataset_info.n_features],
-            ["Churn rate", `${(dataset_info.churn_rate * 100).toFixed(1)}%`],
+            ["Total rows", dataset_info?.total_rows?.toLocaleString() ?? '—'],
+            ["Train size", dataset_info?.train_size?.toLocaleString() ?? '—'],
+            ["Test size", dataset_info?.test_size?.toLocaleString() ?? '—'],
+            ["Features", dataset_info?.n_features ?? '—'],
+            ["Churn rate", dataset_info?.churn_rate != null ? `${(dataset_info.churn_rate * 100).toFixed(1)}%` : '—'],
           ].map(([label, value]) => (
             <div key={String(label)} className="text-center p-3 bg-muted/30 rounded-lg">
               <p className="text-xs text-muted-foreground">{label}</p>
