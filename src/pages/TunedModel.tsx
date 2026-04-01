@@ -8,6 +8,7 @@
 
 import { ChartCard, MetricCard, ConfusionMatrix } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
+import { usePipelineStore } from "@/stores/pipelineStore";
 import { ArrowUp, ArrowDown, Minus } from "lucide-react";
 
 function NoData() {
