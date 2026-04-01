@@ -8,6 +8,7 @@ import {
   startPipelineDemo,
   getPipelineStatus,
   getPipelineResults,
+  setBaseUrl,
   type JobStatus,
   type PipelineResults,
 } from "../services/api";
@@ -24,7 +25,6 @@ export type PipelinePhase =
   | "failed";
 
 export interface PipelineState {
-  // 🔥 CORE PIPELINE STATE
   phase: PipelinePhase;
   jobId: string | null;
   progress: number;
@@ -33,7 +33,6 @@ export interface PipelineState {
   error: string | null;
   results: PipelineResults | null;
 
-  // 🎯 UI STATE
   fileName: string | null;
   rowCount: number;
   colCount: number;
@@ -47,7 +46,6 @@ export interface PipelineState {
   businessMode: boolean;
   backendConnected: boolean;
 
-  // ACTIONS
   runWithFile: (file: File) => Promise<void>;
   runDemo: () => Promise<void>;
   reset: () => void;
@@ -60,7 +58,6 @@ export interface PipelineState {
   toggleBusinessMode: () => void;
   setBackendConnected: (v: boolean) => void;
 
-  // ✅ FIXED MISSING ACTIONS
   setApiBaseUrl: (url: string) => void;
   setCurrency: (c: string) => void;
 }
@@ -87,7 +84,6 @@ const POLL_INTERVAL = 2000;
 // ============================================
 
 export const usePipelineStore = create<PipelineState>((set, get) => ({
-  // 🔥 PIPELINE STATE
   phase: "idle",
   jobId: null,
   progress: 0,
@@ -96,7 +92,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   error: null,
   results: null,
 
-  // 🎯 UI STATE
   fileName: null,
   rowCount: 0,
   colCount: 0,
@@ -109,10 +104,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   apiBaseUrl: "http://localhost:8000",
   businessMode: false,
   backendConnected: false,
-
-  // ============================================
-  // CORE ACTIONS
-  // ============================================
 
   reset: () =>
     set({
@@ -172,10 +163,6 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
     }
   },
 
-  // ============================================
-  // UI ACTIONS
-  // ============================================
-
   setSelectedModel: (m) => set({ selectedModel: m }),
 
   setThreshold: (t) => set({ currentThreshold: t }),
@@ -195,8 +182,11 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
 
   setBackendConnected: (v) => set({ backendConnected: v }),
 
-  // ✅ NEW FIXED FUNCTIONS
-  setApiBaseUrl: (url) => set({ apiBaseUrl: url }),
+  // ✅ Now also updates the axios instance
+  setApiBaseUrl: (url) => {
+    setBaseUrl(url);
+    set({ apiBaseUrl: url });
+  },
 
   setCurrency: (c) => set({ currency: c }),
 }));

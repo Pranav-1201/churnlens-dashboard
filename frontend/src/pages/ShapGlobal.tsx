@@ -1,19 +1,17 @@
 /**
  * ShapGlobal.tsx — wired to real pipeline results
- * Replaces: import { SHAP_VALUES } from "@/data/mockData"
  */
 
 import { useMemo } from "react";
 import { ChartCard } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
-import { CHART_COLORS } from "@/data/mockData"; // KEEP: only colors, not data
+import { CHART_COLORS } from "@/constants/chartColors";
 import {
   BarChart, Bar, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
   CartesianGrid, Cell,
 } from "recharts";
 
-// ── Placeholder ─────────────────────────────────────
 function NoData() {
   return (
     <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
@@ -22,10 +20,6 @@ function NoData() {
   );
 }
 
-// ── Direction inference from sign ───────────────────
-// The pipeline returns mean |SHAP| (always positive).
-// We infer direction from whether the feature name suggests
-// a risk-increasing factor — or expose it once backend sends direction.
 function inferDirection(feature: string): "increases" | "decreases" {
   const riskPositive = [
     "IsMonthToMonth", "FiberUser", "LowEngagement",
@@ -36,12 +30,9 @@ function inferDirection(feature: string): "increases" | "decreases" {
     : "decreases";
 }
 
-// ── Component ────────────────────────────────────────
 export default function ShapGlobal() {
   const { results, noData, isRunning } = usePipelineResults();
 
-  // Normalise: pipeline gives { feature, importance }
-  // We want top 20, sorted descending
   const data = useMemo(() => {
     if (!results?.shap_global) return [];
     return results.shap_global
@@ -60,7 +51,6 @@ export default function ShapGlobal() {
   return (
     <div className="space-y-6">
 
-      {/* Bar Chart */}
       <ChartCard
         title="Mean |SHAP| Values — Top 20 Features"
         subtitle={`Computed from ${results.dataset_info?.test_size ?? 0} test samples`}
@@ -80,7 +70,6 @@ export default function ShapGlobal() {
         </ResponsiveContainer>
       </ChartCard>
 
-      {/* Top 5 cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
         {data.slice(0, 5).map((s, i) => (
           <div key={s.feature} className="glass-card p-4 space-y-2">
@@ -98,12 +87,11 @@ export default function ShapGlobal() {
         ))}
       </div>
 
-      {/* Dataset context */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          ["Best model", results.best_model],
-          ["Threshold", results.best_threshold],
-          ["Features", results.dataset_info.n_features],
+          ["Best model", results?.best_model ?? '—'],
+          ["Threshold", results?.best_threshold ?? '—'],
+          ["Features", results?.dataset_info?.n_features ?? '—'],
           ["Test samples", results.dataset_info?.test_size ?? 0],
         ].map(([label, value]) => (
           <div key={String(label)} className="glass-card p-4 text-center">

@@ -96,11 +96,12 @@ export default function ThresholdOptimization() {
     if (!results) return { thresholdData: [], optimal: null, liveMetrics: null };
 
     const best = results.models.find((m) => m.status === "Selected") ?? results.models[0];
+    if (!best?.confusion_matrix) return { thresholdData: [], optimal: null, liveMetrics: null };
     const data = buildThresholdData(
       best.confusion_matrix,
-      best.threshold,
-      results.cost_fn,
-      results.cost_fp
+      best.threshold ?? results.best_threshold ?? 0.13,
+      results.cost_fn ?? 10000,
+      results.cost_fp ?? 500
     );
     const opt = data.reduce((a, b) => (a.cost < b.cost ? a : b));
 

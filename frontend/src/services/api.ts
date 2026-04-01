@@ -4,6 +4,8 @@
  * - Claude async pipeline system ✅
  * - Your retry + fallback logic ✅
  * - Clean typing + full backend mapping ✅
+ * - Reactive base URL ✅
+ * - Graceful error handling ✅
  */
 
 import axios, { AxiosInstance, AxiosError } from "axios";
@@ -13,7 +15,7 @@ import { ModelMetric } from "@/types/api";
 // BASE CONFIG (AXIOS + FETCH SUPPORT)
 // ============================================
 
-const BASE_URL =
+let BASE_URL =
   import.meta.env.VITE_API_URL ||
   import.meta.env.VITE_API_BASE_URL ||
   "http://localhost:8000";
@@ -23,6 +25,12 @@ const api: AxiosInstance = axios.create({
   timeout: 30000,
   headers: { "Content-Type": "application/json" },
 });
+
+/** Update the base URL at runtime (called from Settings / pipelineStore) */
+export function setBaseUrl(url: string) {
+  BASE_URL = url;
+  api.defaults.baseURL = url;
+}
 
 // Retry interceptor (from your original — KEEP)
 api.interceptors.response.use(
@@ -133,7 +141,7 @@ export interface PipelineResults {
 
   dataset_info: DatasetInfo;
 
-  eda: EDAInfo; // ✅ THIS LINE FIXES YOUR ERROR
+  eda: EDAInfo;
 }
 
 // ============================================
@@ -155,10 +163,9 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // ============================================
-// PIPELINE (IMPORTANT — THIS FIXES YOUR ISSUE)
+// PIPELINE
 // ============================================
 
-// Start pipeline with file
 export async function startPipeline(file: File): Promise<JobResponse> {
   const form = new FormData();
   form.append("file", file);
@@ -173,7 +180,6 @@ export async function startPipeline(file: File): Promise<JobResponse> {
   return res.json();
 }
 
-// Demo pipeline
 export async function startPipelineDemo(): Promise<JobResponse> {
   const form = new FormData();
   form.append("use_demo", "true");
@@ -187,12 +193,10 @@ export async function startPipelineDemo(): Promise<JobResponse> {
   return res.json();
 }
 
-// Poll status (FIXED: now requires jobId)
 export async function getPipelineStatus(jobId: string): Promise<JobStatus> {
   return apiFetch(`/pipeline-status/${jobId}`);
 }
 
-// Get results
 export async function getPipelineResults(
   jobId: string
 ): Promise<PipelineResults> {
@@ -221,7 +225,7 @@ export async function getEDA(): Promise<EDAResponse> {
 }
 
 // ============================================
-// PREDICT (UNCHANGED)
+// PREDICT
 // ============================================
 
 export interface CustomerInput {
@@ -262,16 +266,20 @@ export async function predictChurn(
 }
 
 // ============================================
-// HEALTH
+// HEALTH — graceful error handling
 // ============================================
 
-export const checkHealth = async () => {
-  const r = await api.get("/health");
-  return r.data;
+export const checkHealth = async (): Promise<{ status: string }> => {
+  try {
+    const r = await api.get("/health");
+    return r.data;
+  } catch {
+    return { status: "error" };
+  }
 };
 
 // ============================================
-// LOCAL FALLBACK (KEEP THIS — VERY IMPORTANT)
+// LOCAL FALLBACK
 // ============================================
 
 export const localPredict = (customer: CustomerInput): number => {
