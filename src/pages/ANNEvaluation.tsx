@@ -62,7 +62,7 @@ export default function ANNEvaluation() {
         <MetricCard title="PR-AUC"    value="N/A"                              tint="warning" />
         <MetricCard
           title="Cost"
-          value={`₹${ANN_METRICS.cost.toLocaleString()}`}
+          value={`${currency}${ANN_METRICS.cost.toLocaleString()}`}
           tint="success"
         />
       </div>
