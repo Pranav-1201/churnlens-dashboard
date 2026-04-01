@@ -44,6 +44,7 @@ function Delta({ value, label }: { value: number; label: string }) {
 }
 
 export default function TunedModel() {
+  const { currency } = usePipelineStore();
   const { results, noData, isRunning } = usePipelineResults();
 
   if (noData) return <NoData />;
