@@ -133,7 +133,7 @@ export default function ANNEvaluation() {
             <div>
               <p className="text-xs text-muted-foreground">{bestModel.name} Cost</p>
               <p className="text-lg font-bold text-foreground">
-                ₹{bestModel.cost?.toLocaleString() ?? "—"}
+                {currency}{bestModel.cost?.toLocaleString() ?? "—"}
               </p>
             </div>
             <div>
