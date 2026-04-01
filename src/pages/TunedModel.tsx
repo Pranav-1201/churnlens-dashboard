@@ -169,7 +169,7 @@ export default function TunedModel() {
         <p className="text-sm text-muted-foreground">
           <strong className="text-foreground">Selection rationale:</strong>{" "}
           {selected.name} was selected over {runnerUp.name} because it minimises
-          the business cost function (FN×₹10,000 + FP×₹500).
+          the business cost function (FN×{currency}{results.cost_fn.toLocaleString()} + FP×{currency}{results.cost_fp.toLocaleString()}).
           {Math.abs(deltaAuc) < 0.001
             ? " ROC-AUC is essentially identical between the two — cost is the deciding factor."
             : ` ROC-AUC difference: ${(deltaAuc * 100).toFixed(3)}%.`}

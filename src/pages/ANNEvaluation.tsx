@@ -142,7 +142,7 @@ export default function ANNEvaluation() {
                 (bestModel.cost ?? 0) < ANN_METRICS.cost ? "text-success" : "text-destructive"
               }`}>
                 {bestModel.cost
-                  ? `₹${Math.abs(ANN_METRICS.cost - bestModel.cost).toLocaleString()}`
+                  ? `${currency}${Math.abs(ANN_METRICS.cost - bestModel.cost).toLocaleString()}`
                   : "—"}
               </p>
             </div>
