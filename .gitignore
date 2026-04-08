@@ -17,3 +17,7 @@ catboost_info/
 
 # Large model files (optional - if needed)
 # models/*.pkl
+
+node_modules/
+*.pt
+notebooks/models/

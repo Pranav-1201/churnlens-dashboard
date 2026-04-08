@@ -231,6 +231,12 @@ function _startPolling(
           currentStep: "Complete",
           rowCount: results.dataset_info?.total_rows || 0,
           colCount: results.dataset_info?.n_features || 0,
+          // ✅ CRITICAL FIX: Sync store with actual pipeline results
+          // Previously these stayed at hardcoded defaults (Logistic Regression / 0.13)
+          selectedModel: results.best_model || "Logistic Regression",
+          currentThreshold: results.best_threshold || 0.13,
+          fnCost: results.cost_fn || 10000,
+          fpCost: results.cost_fp || 500,
         });
       }
 

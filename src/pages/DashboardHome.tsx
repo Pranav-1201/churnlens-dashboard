@@ -1,6 +1,6 @@
 import {
   Users, TrendingDown, Award, DollarSign,
-  AlertTriangle, Download, FileText, Eye
+  AlertTriangle, Download, FileText, Eye, RotateCcw
 } from 'lucide-react';
 
 import {
@@ -14,7 +14,7 @@ import { exportToCSV, exportReportAsPDF } from '@/services/exportUtils';
 import { usePipelineResults } from '@/hooks/usePipelineResults';
 
 export default function DashboardHome() {
-  const { currency, businessMode } = usePipelineStore();
+  const { currency, businessMode, reset } = usePipelineStore();
   const navigate = useNavigate();
   const { results, noData, isRunning } = usePipelineResults();
 
@@ -125,6 +125,9 @@ export default function DashboardHome() {
       {/* Actions */}
       <ChartCard title="Quick Actions">
         <div className="flex flex-wrap gap-2">
+          <Button variant="destructive" onClick={() => { reset(); navigate('/'); }}>
+            <RotateCcw className="w-3.5 h-3.5 mr-1" /> Run Again
+          </Button>
           <Button onClick={() => navigate('/dashboard/shap-single')}>Predict</Button>
           <Button variant="outline" onClick={() => navigate('/dashboard/shap-global')}>SHAP</Button>
           <Button variant="outline" onClick={() => exportToCSV(

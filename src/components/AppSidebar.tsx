@@ -1,11 +1,11 @@
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Server, Database, BarChart2, Wrench, Cpu, Code, Scissors,
   TrendingUp, GitBranch, TreePine, Zap, Layers, Box, LayoutGrid,
   Trophy, Target, RefreshCw, Sliders, CheckCircle,
   Globe, User, Brain, Activity, DollarSign, Award, Save, Settings,
-  ChevronLeft, ChevronRight, Moon, Sun
+  ChevronLeft, ChevronRight, Moon, Sun, RotateCcw
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 // Slug → possible backend model names (must match ModelPage.tsx)
 const MODEL_SLUG_NAMES: Record<string, string[]> = {
   'logistic': ['Logistic Regression', 'Logistic'],
+  'tuned-logistic': ['Tuned Logistic', 'Tuned Logistic Regression'],
   'decision-tree': ['Decision Tree', 'DecisionTree'],
   'random-forest': ['Random Forest', 'RandomForest'],
   'xgboost': ['XGBoost', 'XGBoost (Calibrated)', 'xgboost'],
@@ -51,6 +52,7 @@ const NAV_GROUPS = [
     label: "Models",
     items: [
       { icon: TrendingUp, label: "Logistic Regression", path: "/dashboard/models/logistic" },
+      { icon: TrendingUp, label: "Tuned Logistic", path: "/dashboard/models/tuned-logistic" },
       { icon: GitBranch, label: "Decision Tree", path: "/dashboard/models/decision-tree" },
       { icon: TreePine, label: "Random Forest", path: "/dashboard/models/random-forest" },
       { icon: Zap, label: "XGBoost", path: "/dashboard/models/xgboost" },
@@ -95,7 +97,8 @@ interface SidebarProps {
 
 export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
   const location = useLocation();
-  const { isDark, toggleTheme, results } = usePipelineStore();
+  const navigate = useNavigate();
+  const { isDark, toggleTheme, results, reset, phase } = usePipelineStore();
 
   // Get available model names from results
   const availableModelNames = results?.models?.map((m) => m.name) ?? [];
@@ -176,6 +179,16 @@ export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2 space-y-1 shrink-0">
+        {/* New Run button — visible when pipeline has completed */}
+        {phase === 'complete' && (
+          <button
+            onClick={() => { reset(); navigate('/'); }}
+            className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm text-primary hover:bg-primary/10 transition-colors w-full font-medium"
+          >
+            <RotateCcw className="w-4 h-4 shrink-0" />
+            {!collapsed && <span>New Run</span>}
+          </button>
+        )}
         <Link
           to="/dashboard/settings"
           className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
