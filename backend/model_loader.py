@@ -1,44 +1,59 @@
-import pickle
+"""
+model_loader.py — loads the single serialized pipeline artifact.
+
+Artifact format (written by pipeline.save_artifact / train.py):
+    {"pipeline": sklearn Pipeline (raw df in -> proba out),
+     "threshold": float,
+     "metadata": {model_name, feature_names, trained_at, git_commit, ...}}
+"""
+
 import os
+import pickle
 
-_cache = {}
+_cache: dict = {}
 
-def load_model():
-    if "model" in _cache:
-        return _cache["model"], _cache["threshold"]
-    
-    # Look for model relative to this file's location
+
+def _artifact_path() -> str:
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    # Try backend/models/ first, then project root models/
     candidates = [
         os.path.join(base_dir, "models", "churn_model.pkl"),
         os.path.join(base_dir, "..", "models", "churn_model.pkl"),
     ]
-    
-    model_path = None
     for path in candidates:
         if os.path.exists(path):
-            model_path = path
-            break
-    
-    if model_path is None:
-        raise FileNotFoundError(
-            f"churn_model.pkl not found. Tried: {candidates}"
-        )
-    
-    with open(model_path, "rb") as f:
+            return path
+    raise FileNotFoundError(f"churn_model.pkl not found. Tried: {candidates}")
+
+
+def load_artifact():
+    """Returns (pipeline, threshold, metadata). Cached after first load."""
+    if "pipeline" in _cache:
+        return _cache["pipeline"], _cache["threshold"], _cache["metadata"]
+
+    path = _artifact_path()
+    # Pickle is safe here: the artifact is produced by our own train.py in this
+    # repo and never accepted from users/network. sklearn pipelines require
+    # binary serialization (no JSON-compatible representation exists).
+    with open(path, "rb") as f:
         artifact = pickle.load(f)
-    
-    # Handle both dict format {"model":..., "threshold":...}
-    # and raw model format
-    if isinstance(artifact, dict):
-        _cache["model"] = artifact["model"]
-        _cache["threshold"] = artifact.get("threshold", 0.13)
-    else:
-        _cache["model"] = artifact
-        _cache["threshold"] = 0.13
-    
-    print(f"✅ Model loaded from {model_path}")
-    print(f"✅ Threshold: {_cache['threshold']}")
-    print(f"✅ Model type: {type(_cache['model'])}")
-    return _cache["model"], _cache["threshold"]
+
+    if not isinstance(artifact, dict) or "pipeline" not in artifact:
+        raise ValueError(
+            f"{path} is a legacy artifact without the full preprocessing pipeline. "
+            "Regenerate it with: python backend/train.py"
+        )
+
+    _cache["pipeline"] = artifact["pipeline"]
+    _cache["threshold"] = float(artifact["threshold"])
+    _cache["metadata"] = artifact.get("metadata", {})
+
+    meta = _cache["metadata"]
+    print(f"[model_loader] Loaded {meta.get('model_name', 'model')} from {path} "
+          f"(threshold={_cache['threshold']}, trained_at={meta.get('trained_at', '?')}, "
+          f"commit={meta.get('git_commit', '?')})")
+    return _cache["pipeline"], _cache["threshold"], _cache["metadata"]
+
+
+def clear_cache():
+    """For tests: force a reload on next access."""
+    _cache.clear()

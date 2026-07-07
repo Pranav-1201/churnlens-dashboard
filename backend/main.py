@@ -26,7 +26,7 @@ from fastapi.responses import JSONResponse
 
 import job_store
 from pipeline import run_pipeline
-from predictor import predict as run_predict, FEATURE_COLUMNS
+from predictor import predict as run_predict
 from schemas import CustomerInput, PredictionResponse
 
 # ──────────────────────────────────────────────
@@ -77,11 +77,19 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
 # ──────────────────────────────────────────────
 @app.get("/health")
 def health():
+    try:
+        from model_loader import load_artifact
+        _, _, meta = load_artifact()
+        feature_count = len(meta.get("feature_names", []))
+        model_name = meta.get("model_name")
+    except Exception:
+        feature_count, model_name = 0, None
     return {
         "status": "ok",
         "sklearn_version": sklearn.__version__,
         "python": sys.version.split()[0],
-        "feature_count": len(FEATURE_COLUMNS),
+        "feature_count": feature_count,
+        "model_name": model_name,
     }
 
 
