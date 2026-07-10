@@ -17,15 +17,16 @@ import threading
 import traceback
 import sys
 
+import numpy as np
 import pandas as pd
 import sklearn
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import job_store
-from pipeline import run_pipeline
+from pipeline import run_pipeline, cost_threshold_curve
 from predictor import predict as run_predict
 from schemas import CustomerInput, PredictionResponse
 
@@ -176,6 +177,46 @@ def metrics():
             "cost_fn": _last_results.get("cost_fn"),
             "cost_fp": _last_results.get("cost_fp"),
         }
+
+
+# ──────────────────────────────────────────────
+# THRESHOLD CURVE — real cost-vs-threshold from OOF predictions
+# Recomputed live with the caller's FN/FP costs (no retraining).
+# This is the honest replacement for the old fabricated frontend curve.
+# ──────────────────────────────────────────────
+@app.get("/threshold-curve")
+def threshold_curve(
+    cost_fn: float = Query(None, gt=0, description="Cost of a missed churner (false negative)"),
+    cost_fp: float = Query(None, gt=0, description="Cost of a wasted offer (false positive)"),
+):
+    with _results_lock:
+        oof = _last_results.get("validation_oof")
+        default_fn = _last_results.get("cost_fn", 10000)
+        default_fp = _last_results.get("cost_fp", 500)
+        best_model = _last_results.get("best_model")
+        locked_threshold = _last_results.get("best_threshold")
+
+    if not oof:
+        raise HTTPException(404, "Run the pipeline first")
+
+    fn = float(cost_fn) if cost_fn is not None else float(default_fn)
+    fp = float(cost_fp) if cost_fp is not None else float(default_fp)
+
+    y_true = np.asarray(oof["y_true"], dtype=int)
+    probs = np.asarray(oof["probs"], dtype=float)
+    curve = cost_threshold_curve(y_true, probs, fn, fp)
+    optimal = min(curve, key=lambda r: r["cost"])
+
+    return {
+        "source": "validation_oof",
+        "model": oof.get("model", best_model),
+        "cost_fn": fn,
+        "cost_fp": fp,
+        "curve": curve,
+        "optimal": optimal,
+        "locked_threshold": locked_threshold,
+        "note": oof.get("note"),
+    }
 
 
 # ──────────────────────────────────────────────

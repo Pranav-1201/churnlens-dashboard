@@ -93,7 +93,20 @@ string-replace/hand-rolled-OHE code paths entirely.
 
 ## 4. Other new findings
 
-**B. The dashboard's threshold/cost curves are fabricated (HIGH).**
+**B. The dashboard's threshold/cost curves are fabricated (HIGH). — FIXED in Phase 2.**
+> Resolved 2026-07-07. The backend now persists the selected model's out-of-fold
+> validation predictions and computes the curve by exact confusion-matrix
+> evaluation at 99 thresholds (`cost_threshold_curve` in `backend/pipeline.py`).
+> A new `GET /threshold-curve?cost_fn=&cost_fp=` endpoint re-scores those stored
+> predictions with the caller's costs, so the Settings inputs genuinely drive the
+> chart. `buildThresholdData`/`buildCostCurve` are deleted; the pages render
+> backend data verbatim and show an error rather than synthesising a curve when
+> the backend is unreachable. Guarded by `tests/test_threshold_curve.py` and
+> `tests/test_threshold_curve_api.py` (the old sigmoid curve fails all 99 points
+> of the exactness assertion). Note: a *separate* fabrication remains in
+> `src/pages/ANNTraining.tsx` (synthetic loss curve labelled as experiment data).
+
+Original finding:
 `src/pages/ThresholdOptimization.tsx:37-86` synthesizes precision/recall/cost across thresholds from a
 *single* confusion matrix using an invented sigmoid/exponential extrapolation (comment: "We model this as a
 sigmoid ramp"). The chart looks like model output; it is not. The backend computes the real sweep internally

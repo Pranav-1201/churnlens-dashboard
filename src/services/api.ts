@@ -123,6 +123,32 @@ export interface DatasetInfo {
   churn_rate: number;
 }
 
+/** One real point on the cost-vs-threshold curve. Computed by the backend from
+ *  out-of-fold validation predictions via an exact confusion matrix — never
+ *  interpolated or simulated on the client (see AUDIT.md §4.B). */
+export interface ThresholdPoint {
+  threshold: number;
+  precision: number;
+  recall: number;
+  f1: number;
+  tp: number;
+  fp: number;
+  fn: number;
+  tn: number;
+  cost: number;
+}
+
+export interface ThresholdCurveResponse {
+  source: "validation_oof";
+  model: string;
+  cost_fn: number;
+  cost_fp: number;
+  curve: ThresholdPoint[];
+  optimal: ThresholdPoint;
+  locked_threshold: number;
+  note?: string;
+}
+
 export interface PipelineResults {
   models: ModelMetric[];
 
@@ -142,6 +168,8 @@ export interface PipelineResults {
   dataset_info: DatasetInfo;
 
   eda: EDAInfo;
+
+  threshold_curve?: ThresholdCurveResponse;
 }
 
 // ============================================
@@ -222,6 +250,25 @@ export async function getCustomerShap(index: number): Promise<CustomerShap> {
 
 export async function getEDA(): Promise<EDAResponse> {
   return apiFetch("/eda");
+}
+
+/**
+ * Fetch the REAL cost-vs-threshold curve for the selected model.
+ *
+ * The FN/FP costs are sent to the backend, which re-evaluates the stored
+ * out-of-fold validation predictions at every threshold and returns exact
+ * confusion-matrix costs. This is what makes the cost inputs actually matter:
+ * nothing about the curve is computed on the client.
+ */
+export async function getThresholdCurve(
+  costFn?: number,
+  costFp?: number
+): Promise<ThresholdCurveResponse> {
+  const params = new URLSearchParams();
+  if (costFn != null) params.set("cost_fn", String(costFn));
+  if (costFp != null) params.set("cost_fp", String(costFp));
+  const qs = params.toString();
+  return apiFetch(`/threshold-curve${qs ? `?${qs}` : ""}`);
 }
 
 // ============================================
