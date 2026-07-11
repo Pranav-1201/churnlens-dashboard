@@ -60,6 +60,29 @@ Instead of default `0.5`, the project:
 > test set) and the corrected figure is ₹419,500. A smaller number, but one
 > that generalizes — finding and fixing this is part of the project story.
 
+### Interactive cost curve (dashboard)
+
+The dashboard's **Cost vs Threshold** chart (Threshold Optimization and Business
+Analysis pages) is computed by the backend, not the browser. For the selected
+model, the backend evaluates an **exact confusion matrix at 99 thresholds** over
+its **out-of-fold validation predictions** and returns the curve
+(`GET /threshold-curve?cost_fn=&cost_fp=`). The FN/FP cost inputs on the Settings
+page are sent with that request, so changing them recomputes the curve
+server-side — no retraining, and nothing about the curve is synthesised on the
+client.
+
+> An earlier version of the dashboard faked this chart: it extrapolated the whole
+> curve from a single confusion matrix with a sigmoid/exponential ramp, and the
+> cost inputs never left the browser. That is fixed; regression tests
+> (`tests/test_threshold_curve*.py`, `src/hooks/useThresholdCurve.test.tsx`)
+> assert every plotted point equals a direct confusion-matrix cost and that the
+> curve moves when the costs change.
+
+> **"Cost" in the model-comparison table is validation cost.** The per-model
+> cost shown on the Model Comparison page is the **out-of-fold (validation)**
+> business cost — the exact quantity model selection minimises. It is *not* a
+> test-set number; the held-out test set is scored once, in the final summary.
+
 ---
 
 ## 📊 Business Impact Visualization

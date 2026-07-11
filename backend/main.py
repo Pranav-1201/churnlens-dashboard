@@ -12,6 +12,7 @@ Features:
 """
 
 import io
+import json
 import os
 import threading
 import traceback
@@ -53,6 +54,36 @@ print("FILE EXISTS:", os.path.exists(DEMO_CSV_PATH))
 _last_results: dict = {}
 _results_lock = threading.Lock()
 
+# Warm start: persist the most recent run so the dashboard survives a restart
+# instead of dropping every result when the process exits (AUDIT.md §4.G).
+_LAST_RUN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "models", "last_run.json")
+
+
+def _persist_last_results(results: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_LAST_RUN_PATH), exist_ok=True)
+        with open(_LAST_RUN_PATH, "w", encoding="utf-8") as f:
+            json.dump(results, f, default=str)
+    except Exception as e:  # persistence is best-effort; never break a run over it
+        print(f"[warm-start] could not persist last run: {e}")
+
+
+def _load_last_results() -> None:
+    global _last_results
+    try:
+        if os.path.exists(_LAST_RUN_PATH):
+            with open(_LAST_RUN_PATH, "r", encoding="utf-8") as f:
+                _last_results = json.load(f)
+            print(f"[warm-start] loaded previous run from {_LAST_RUN_PATH} "
+                  f"(model={_last_results.get('best_model')})")
+    except Exception as e:
+        print(f"[warm-start] could not load previous run: {e}")
+
+
+_load_last_results()
+
+
 # ──────────────────────────────────────────────
 # Background pipeline runner
 # ──────────────────────────────────────────────
@@ -66,6 +97,7 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
         results = run_pipeline(df, progress_callback=progress_cb)
         with _results_lock:
             _last_results = results
+        _persist_last_results(results)
         job_store.mark_complete(job_id, results)
     except Exception as e:
         tb = traceback.format_exc()
