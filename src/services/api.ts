@@ -149,6 +149,38 @@ export interface ThresholdCurveResponse {
   note?: string;
 }
 
+/** How FN/FP costs were derived from the dataset (CLV-based), not guessed. */
+export interface CostDerivation {
+  method: string;
+  avg_monthly_charges?: number;
+  retained_lifetime_months?: number;
+  gross_margin?: number;
+  retention_discount?: number;
+  offer_duration_months?: number;
+  cost_fn?: number;
+  cost_fp?: number;
+  cost_fn_formula?: string;
+  cost_fp_formula?: string;
+}
+
+export interface CostSensitivityPoint {
+  ratio: number;
+  cost_fn: number;
+  cost_fp: number;
+  optimal_threshold: number;
+  optimal_cost: number;
+  recall_at_optimal: number;
+  precision_at_optimal: number;
+}
+
+export interface CostSensitivityResponse {
+  source: "validation_oof";
+  model: string;
+  cost_fp: number;
+  points: CostSensitivityPoint[];
+  cost_derivation?: CostDerivation;
+}
+
 export interface PipelineResults {
   models: ModelMetric[];
 
@@ -269,6 +301,20 @@ export async function getThresholdCurve(
   if (costFp != null) params.set("cost_fp", String(costFp));
   const qs = params.toString();
   return apiFetch(`/threshold-curve${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * Fetch the cost-ratio sensitivity sweep: how the cost-optimal threshold and its
+ * cost move as FN/FP varies. Computed by the backend from the same out-of-fold
+ * predictions via the real cost curve — no client-side modelling.
+ */
+export async function getCostSensitivity(
+  costFp?: number
+): Promise<CostSensitivityResponse> {
+  const params = new URLSearchParams();
+  if (costFp != null) params.set("cost_fp", String(costFp));
+  const qs = params.toString();
+  return apiFetch(`/cost-sensitivity${qs ? `?${qs}` : ""}`);
 }
 
 // ============================================

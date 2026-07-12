@@ -162,6 +162,13 @@ with p=0.2 is simultaneously "prediction: 1 (churn)" and "LOW RISK". The batch p
 candidate. `notebooks/` contains generated artifacts (`best_ann.pt`, `catboost_info/`, PNGs) partially
 ignored, partially untracked.
 
+**J. ANNTraining.tsx fabricated its loss curve (same class as §4.B). — FIXED 2026-07-12.**
+> The page generated its train/val loss with `0.65*exp(-0.08*epoch)+0.32` while labelling it "notebook
+> experiment data". Now it plots the REAL per-epoch history recorded by `backend/export_ann_history.py`
+> (same architecture/seed as the notebook) into `src/data/ann_history.json`, with the true early-stop epoch
+> and test AUC. Also FIXED this pass: brief #3 (hardcoded cost matrix → `derive_costs()` CLV formula) and
+> brief #4 (cost-ratio sensitivity → `cost_sensitivity_curve()` + `/cost-sensitivity` + dashboard chart).
+
 ---
 
 ## 5. What I did **not** verify (honesty section)

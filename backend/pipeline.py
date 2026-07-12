@@ -68,10 +68,71 @@ except ImportError:
 
 warnings.filterwarnings("ignore")
 
+# Fallback costs, used only if derivation from data is impossible. These are the
+# original hardcoded guesses, kept solely as a last resort — real runs derive
+# costs from the dataset via derive_costs() below.
 COST_FN = 10_000
 COST_FP = 500
 
 RANDOM_STATE = 42
+
+# ── Cost derivation (replaces the hardcoded COST_FN/COST_FP guess) ────────────
+# Assumptions, documented so a reviewer can challenge them:
+GROSS_MARGIN = 0.30            # telecom gross margin — a missed churner loses
+                              #   margin, not gross revenue
+RETENTION_DISCOUNT = 0.20     # a retention offer is ~20% off ...
+OFFER_DURATION_MONTHS = 3     #   ... for ~3 months
+
+
+def derive_costs(df: pd.DataFrame) -> tuple[int, int, dict]:
+    """Derive FN/FP costs from the dataset instead of guessing them.
+
+    FN (missed churner)  = expected remaining customer lifetime value lost
+        = mean(MonthlyCharges) * mean_tenure_of_retained_customers * GROSS_MARGIN
+      i.e. the margin on the revenue a churner would have produced over a typical
+      retained customer's lifetime.
+
+    FP (wasted retention offer) = the incentive spent on a customer who was not
+      going to churn
+        = RETENTION_DISCOUNT * mean(MonthlyCharges) * OFFER_DURATION_MONTHS
+
+    Returns (cost_fn, cost_fp, derivation) where `derivation` documents every
+    input so the dashboard can show the formula. Falls back to COST_FN/COST_FP
+    if the required columns are missing.
+    """
+    if "MonthlyCharges" not in df.columns or "tenure" not in df.columns:
+        return COST_FN, COST_FP, {"method": "fallback_constants",
+                                  "reason": "MonthlyCharges/tenure missing"}
+
+    mc = pd.to_numeric(df["MonthlyCharges"], errors="coerce")
+    avg_monthly = float(mc.mean())
+
+    # Lifetime proxy: how long a *retained* customer stays.
+    if "Churn" in df.columns:
+        churn = df["Churn"].astype(str).str.strip().str.lower()
+        retained_tenure = pd.to_numeric(df.loc[churn == "no", "tenure"], errors="coerce")
+        lifetime = float(retained_tenure.mean()) if retained_tenure.notna().any() \
+            else float(pd.to_numeric(df["tenure"], errors="coerce").mean())
+    else:
+        lifetime = float(pd.to_numeric(df["tenure"], errors="coerce").mean())
+
+    cost_fn = int(round(avg_monthly * lifetime * GROSS_MARGIN))
+    cost_fp = int(round(RETENTION_DISCOUNT * avg_monthly * OFFER_DURATION_MONTHS))
+    cost_fp = max(cost_fp, 1)  # guard against zero
+
+    derivation = {
+        "method": "clv_derived",
+        "avg_monthly_charges": round(avg_monthly, 2),
+        "retained_lifetime_months": round(lifetime, 2),
+        "gross_margin": GROSS_MARGIN,
+        "retention_discount": RETENTION_DISCOUNT,
+        "offer_duration_months": OFFER_DURATION_MONTHS,
+        "cost_fn": cost_fn,
+        "cost_fp": cost_fp,
+        "cost_fn_formula": "avg_monthly_charges * retained_lifetime_months * gross_margin",
+        "cost_fp_formula": "retention_discount * avg_monthly_charges * offer_duration_months",
+    }
+    return cost_fn, cost_fp, derivation
 
 
 # ── Data cleaning ────────────────────────────────────────────────────────────
@@ -156,6 +217,37 @@ def cost_threshold_curve(y_true, y_prob, cost_fn=COST_FN, cost_fp=COST_FP, grid=
             "cost": int(fn * cost_fn + fp * cost_fp),
         })
     return rows
+
+
+DEFAULT_COST_RATIOS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100]
+
+
+def cost_sensitivity_curve(y_true, y_prob, cost_fp=COST_FP, ratios=None):
+    """How the cost-optimal threshold and its cost shift as the FN/FP cost ratio
+    varies. FP cost is held fixed; FN = ratio * FP. Each point reuses the exact
+    cost_threshold_curve(), so nothing here is interpolated.
+
+    Demonstrates that cost-sensitive learning is not a fixed point: the operating
+    threshold you should deploy depends entirely on how much a miss costs
+    relative to a false alarm.
+    """
+    if ratios is None:
+        ratios = DEFAULT_COST_RATIOS
+    out = []
+    for r in ratios:
+        cost_fn = float(r) * float(cost_fp)
+        curve = cost_threshold_curve(y_true, y_prob, cost_fn, cost_fp)
+        opt = min(curve, key=lambda p: p["cost"])
+        out.append({
+            "ratio": float(r),
+            "cost_fn": cost_fn,
+            "cost_fp": float(cost_fp),
+            "optimal_threshold": opt["threshold"],
+            "optimal_cost": opt["cost"],
+            "recall_at_optimal": opt["recall"],
+            "precision_at_optimal": opt["precision"],
+        })
+    return out
 
 
 # ── Out-of-fold validation ───────────────────────────────────────────────────
@@ -363,8 +455,8 @@ def run_pipeline(
     df: pd.DataFrame,
     progress_callback: Optional[Callable[[int, str], None]] = None,
     artifact_path: Optional[str] = None,
-    cost_fn: int = COST_FN,
-    cost_fp: int = COST_FP,
+    cost_fn: Optional[int] = None,
+    cost_fp: Optional[int] = None,
 ) -> dict:
     def progress(pct: int, msg: str):
         if progress_callback:
@@ -373,6 +465,15 @@ def run_pipeline(
     results = {}
 
     try:
+        # Costs are DERIVED from the dataset (CLV-based), not hardcoded. An
+        # explicit cost_fn/cost_fp still overrides (e.g. a user's what-if).
+        derived_fn, derived_fp, cost_derivation = derive_costs(df)
+        if cost_fn is None:
+            cost_fn = derived_fn
+        if cost_fp is None:
+            cost_fp = derived_fp
+        results["cost_derivation"] = cost_derivation
+
         progress(5, "Computing EDA summary")
         results["eda"] = compute_eda_summary(df)
 
@@ -567,6 +668,12 @@ def run_pipeline(
             "curve": curve,
             "optimal": optimal_row,
             "locked_threshold": best_threshold,
+        }
+        results["cost_sensitivity"] = {
+            "source": "validation_oof",
+            "model": best["name"],
+            "cost_fp": cost_fp,
+            "points": cost_sensitivity_curve(y_train, best_oof, cost_fp),
         }
 
         # ── SHAP (global + per-customer), fixed label-based attribution ─────

@@ -16,11 +16,13 @@ import { useState, useMemo } from "react";
 import { MetricCard, ChartCard } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
 import { useThresholdCurve } from "@/hooks/useThresholdCurve";
+import { useCostSensitivity } from "@/hooks/useCostSensitivity";
 import { usePipelineStore } from "@/stores/pipelineStore";
 import {
   LineChart, Line, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
   CartesianGrid, ReferenceLine, AreaChart, Area,
+  ComposedChart,
 } from "recharts";
 import { Slider } from "@/components/ui/slider";
 import { CHART_COLORS } from "@/constants/chartColors";
@@ -37,6 +39,7 @@ export default function ThresholdOptimization() {
   const { currency, currentThreshold, setThreshold } = usePipelineStore();
   const { results, noData, isRunning } = usePipelineResults();
   const { data: curveData, loading, error } = useThresholdCurve();
+  const { data: sensitivity } = useCostSensitivity();
   const [localThreshold, setLocal] = useState<number | null>(null);
 
   const threshold = localThreshold ?? currentThreshold;
@@ -278,7 +281,62 @@ export default function ThresholdOptimization() {
         </div>
       </ChartCard>
 
-      {/* Cost function explanation */}
+      {/* Cost-ratio sensitivity — the optimum is not a fixed point */}
+      {sensitivity && sensitivity.points.length > 0 && (
+        <ChartCard
+          title="Cost-Ratio Sensitivity"
+          subtitle="How the cost-optimal threshold and its cost shift as FN/FP varies (FP held fixed)"
+        >
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={sensitivity.points}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="ratio"
+                type="number"
+                scale="log"
+                domain={["dataMin", "dataMax"]}
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                label={{ value: "FN / FP cost ratio (log)", position: "insideBottom", offset: -4, fontSize: 10 }}
+              />
+              <YAxis
+                yAxisId="thr"
+                domain={[0, 1]}
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                label={{ value: "Optimal threshold", angle: -90, position: "insideLeft", fontSize: 10 }}
+              />
+              <YAxis
+                yAxisId="cost"
+                orientation="right"
+                tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+                tickFormatter={(v: number) => `${currency}${(v / 1000).toFixed(0)}k`}
+              />
+              <Tooltip
+                labelFormatter={(l) => `FN/FP ratio: ${l}`}
+                formatter={(v: number, name: string) =>
+                  name === "Optimal cost"
+                    ? [`${currency}${v.toLocaleString()}`, name]
+                    : [v.toFixed(2), name]
+                }
+              />
+              <Line
+                yAxisId="thr" type="monotone" dataKey="optimal_threshold"
+                stroke={CHART_COLORS[0]} strokeWidth={2} dot name="Optimal threshold"
+              />
+              <Line
+                yAxisId="cost" type="monotone" dataKey="optimal_cost"
+                stroke={CHART_COLORS[3]} strokeWidth={2} dot name="Optimal cost"
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+          <p className="text-xs text-muted-foreground mt-2">
+            As missing a churner gets more expensive relative to a false alarm, the optimal
+            threshold falls — you flag more aggressively. This is why a single hardcoded
+            threshold (or cost) is a red flag: the right operating point depends on the ratio.
+          </p>
+        </ChartCard>
+      )}
+
+      {/* Cost function + how the costs were derived */}
       <div className="glass-card p-5 border-l-2 border-l-warning">
         <h3 className="font-semibold text-foreground mb-2">Cost Function</h3>
         <code className="text-sm bg-muted px-3 py-1.5 rounded block text-foreground mb-2">
@@ -290,6 +348,21 @@ export default function ThresholdOptimization() {
           ({currency}{optimal.cost.toLocaleString()}), catching {optimal.tp} churners
           and missing {optimal.fn}.
         </p>
+        {sensitivity?.cost_derivation?.method === "clv_derived" && (
+          <div className="mt-3 text-xs text-muted-foreground border-t border-border pt-3 space-y-1">
+            <p className="text-foreground font-medium">These costs are derived from the data, not guessed:</p>
+            <p>
+              FN = avg monthly charge ({currency}{sensitivity.cost_derivation.avg_monthly_charges})
+              × retained lifetime ({sensitivity.cost_derivation.retained_lifetime_months} mo)
+              × gross margin ({sensitivity.cost_derivation.gross_margin}) ≈ {currency}{cost_fn.toLocaleString()}
+            </p>
+            <p>
+              FP = retention discount ({sensitivity.cost_derivation.retention_discount})
+              × avg monthly charge × offer duration ({sensitivity.cost_derivation.offer_duration_months} mo)
+              ≈ {currency}{cost_fp.toLocaleString()}
+            </p>
+          </div>
+        )}
       </div>
 
     </div>

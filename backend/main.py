@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 import job_store
-from pipeline import run_pipeline, cost_threshold_curve
+from pipeline import run_pipeline, cost_threshold_curve, cost_sensitivity_curve
 from predictor import predict as run_predict
 from schemas import CustomerInput, PredictionResponse
 
@@ -208,6 +208,7 @@ def metrics():
             "best_threshold": _last_results.get("best_threshold"),
             "cost_fn": _last_results.get("cost_fn"),
             "cost_fp": _last_results.get("cost_fp"),
+            "cost_derivation": _last_results.get("cost_derivation"),
         }
 
 
@@ -248,6 +249,35 @@ def threshold_curve(
         "optimal": optimal,
         "locked_threshold": locked_threshold,
         "note": oof.get("note"),
+    }
+
+
+# ──────────────────────────────────────────────
+# COST SENSITIVITY — how the optimal threshold shifts with the FN/FP ratio
+# ──────────────────────────────────────────────
+@app.get("/cost-sensitivity")
+def cost_sensitivity(
+    cost_fp: float = Query(None, gt=0, description="Fixed FP cost; FN = ratio * FP"),
+):
+    with _results_lock:
+        oof = _last_results.get("validation_oof")
+        default_fp = _last_results.get("cost_fp", 500)
+        best_model = _last_results.get("best_model")
+        derivation = _last_results.get("cost_derivation")
+
+    if not oof:
+        raise HTTPException(404, "Run the pipeline first")
+
+    fp = float(cost_fp) if cost_fp is not None else float(default_fp)
+    y_true = np.asarray(oof["y_true"], dtype=int)
+    probs = np.asarray(oof["probs"], dtype=float)
+
+    return {
+        "source": "validation_oof",
+        "model": oof.get("model", best_model),
+        "cost_fp": fp,
+        "points": cost_sensitivity_curve(y_true, probs, fp),
+        "cost_derivation": derivation,
     }
 
 

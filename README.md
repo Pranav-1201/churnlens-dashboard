@@ -33,10 +33,31 @@ Most ML projects optimize for accuracy.
 
 ## 💰 Cost-Sensitive Learning (Core Innovation)
 
-* False Negative (missed churner) → ₹10,000 loss
-* False Positive (unnecessary offer) → ₹500 cost
+The FN/FP costs are **derived from the dataset**, not guessed. The old hardcoded
+₹10,000 / ₹500 were arbitrary magic numbers; they are now computed with a
+documented CLV formula (`derive_costs()` in `backend/pipeline.py`):
+
+* **FN (missed churner)** = `avg_monthly_charges × retained_lifetime_months × gross_margin`
+  — the margin on the revenue a churner would have produced over a typical
+  retained customer's lifetime. On the Telco data: `64.76 × 37.57 × 0.30 ≈ 730`.
+* **FP (wasted retention offer)** = `retention_discount × avg_monthly_charges × offer_duration_months`
+  — the incentive spent on a non-churner. On the Telco data: `0.20 × 64.76 × 3 ≈ 39`.
+
+Documented assumptions (challengeable, in one place): gross margin 30%, retention
+offer = 20% off for 3 months. A user can still override both costs live; the
+derived values are only the default.
 
 👉 Model is optimized to **minimize total cost**, not maximize accuracy.
+
+### Cost-ratio sensitivity — the optimum is not a fixed point
+
+The dashboard's **Cost-Ratio Sensitivity** chart (`GET /cost-sensitivity`) sweeps
+the FN/FP ratio and shows the cost-optimal threshold move accordingly — computed
+from the same out-of-fold predictions via the real cost curve. On the demo run
+the optimal threshold falls from **0.67** (ratio 1:1) to **0.02** (ratio 100:1)
+as missing a churner gets more expensive, with recall rising 0.39 → 0.99. A single
+fixed threshold (or cost) is a red flag: the right operating point depends on the
+ratio.
 
 ---
 

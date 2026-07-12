@@ -25,18 +25,23 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from features import build_model_pipeline  # noqa: E402
 from pipeline import (RANDOM_STATE, clean_data, compute_eda_summary,  # noqa: E402
-                      cost_threshold_curve, find_best_threshold,
-                      oof_probabilities)
+                      cost_sensitivity_curve, cost_threshold_curve,
+                      derive_costs, find_best_threshold, oof_probabilities)
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE, "data", "telco_demo_small.csv")
 OUT = os.path.join(BASE, "models", "last_run.json")
-COST_FN, COST_FP = 10000, 500
 
 
 def main():
     df = pd.read_csv(CSV)
     print(f"[seed] loaded {len(df)} rows from {CSV}")
+
+    # Costs derived from the dataset (CLV-based), same as run_pipeline.
+    COST_FN, COST_FP, cost_derivation = derive_costs(df)
+    print(f"[seed] derived costs: FN={COST_FN} FP={COST_FP} "
+          f"(avg_monthly={cost_derivation.get('avg_monthly_charges')}, "
+          f"lifetime={cost_derivation.get('retained_lifetime_months')})")
 
     clean = clean_data(df)
     y = clean["Churn"].values.astype(int)
@@ -122,6 +127,12 @@ def main():
             "curve": curve, "optimal": optimal,
             "locked_threshold": best["threshold"],
         },
+        "cost_sensitivity": {
+            "source": "validation_oof", "model": best["name"],
+            "cost_fp": COST_FP,
+            "points": cost_sensitivity_curve(y_tr, best_oof, COST_FP),
+        },
+        "cost_derivation": cost_derivation,
         "eda": compute_eda_summary(df),
         "dataset_info": {
             "total_rows": int(len(df)), "train_size": int(len(X_tr)),

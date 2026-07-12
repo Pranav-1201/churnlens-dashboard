@@ -1,0 +1,93 @@
+{
+  "epochs": [
+    {
+      "epoch": 1,
+      "trainLoss": 0.85,
+      "valLoss": 0.7429
+    },
+    {
+      "epoch": 2,
+      "trainLoss": 0.7444,
+      "valLoss": 0.7162
+    },
+    {
+      "epoch": 3,
+      "trainLoss": 0.7376,
+      "valLoss": 0.7113
+    },
+    {
+      "epoch": 4,
+      "trainLoss": 0.7314,
+      "valLoss": 0.7122
+    },
+    {
+      "epoch": 5,
+      "trainLoss": 0.7225,
+      "valLoss": 0.7116
+    },
+    {
+      "epoch": 6,
+      "trainLoss": 0.7161,
+      "valLoss": 0.7119
+    },
+    {
+      "epoch": 7,
+      "trainLoss": 0.7153,
+      "valLoss": 0.7173
+    },
+    {
+      "epoch": 8,
+      "trainLoss": 0.7078,
+      "valLoss": 0.7154
+    }
+  ],
+  "early_stop_epoch": 3,
+  "best_val_loss": 0.7113,
+  "test_auc": 0.8375,
+  "architecture": [
+    {
+      "label": "Input",
+      "units": null
+    },
+    {
+      "label": "Dense",
+      "units": 128
+    },
+    {
+      "label": "BatchNorm + ReLU",
+      "units": 128
+    },
+    {
+      "label": "Dropout 0.4",
+      "units": null
+    },
+    {
+      "label": "Dense",
+      "units": 64
+    },
+    {
+      "label": "BatchNorm + ReLU",
+      "units": 64
+    },
+    {
+      "label": "Dropout 0.3",
+      "units": null
+    },
+    {
+      "label": "Output",
+      "units": 1
+    }
+  ],
+  "n_features": 56,
+  "hyperparams": {
+    "optimizer": "Adam",
+    "lr": 0.0005,
+    "batch_size": 64,
+    "max_epochs": 40,
+    "patience": 5,
+    "loss": "BCEWithLogitsLoss(pos_weight)"
+  },
+  "seed": 42,
+  "generated_at": "2026-07-11T19:13:14.159146+00:00",
+  "note": "Real per-epoch losses recorded from an actual PyTorch training run (backend/export_ann_history.py). NOT synthetic."
+}
