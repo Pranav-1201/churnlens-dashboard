@@ -1,6 +1,15 @@
 /**
- * ANNTraining.tsx — notebook experiment reference page
- * ANN training curve is from offline experiment, not live pipeline
+ * ANNTraining.tsx — real recorded ANN training history.
+ *
+ * The loss curve is the ACTUAL per-epoch train/val loss from a PyTorch training
+ * run, recorded to src/data/ann_history.json by backend/export_ann_history.py
+ * (same architecture, loss, optimiser, early stopping and seed as the notebook).
+ *
+ * It previously plotted `0.65 * Math.exp(-0.08 * epoch) + 0.32` — a fabricated
+ * curve dressed up as "notebook experiment data". That was the same bug pattern
+ * as the cost chart (AUDIT.md §4.B); do not reintroduce it. The ANN is not part
+ * of the live backend pipeline, so this history is a recorded artifact, not a
+ * live fetch — but every number in it is measured, not invented.
  */
 
 import { ChartCard } from "@/components/DashboardCards";
@@ -13,18 +22,14 @@ import {
 } from "recharts";
 
 import { CHART_COLORS } from "@/constants/chartColors";
+import annHistory from "@/data/ann_history.json";
 
-// Notebook experiment data — static reference (not mock pipeline results)
-const ANN_TRAINING_CURVE = Array.from({ length: 25 }, (_, i) => ({
-  epoch: i + 1,
-  trainLoss: +(0.65 * Math.exp(-0.08 * i) + 0.32).toFixed(4),
-  valLoss: +(0.60 * Math.exp(-0.06 * i) + 0.38 + (i > 18 ? 0.02 * (i - 18) : 0)).toFixed(4),
-}));
-
-const EARLY_STOP_EPOCH = 20;
+const EPOCHS = annHistory.epochs;
+const BEST_EPOCH = annHistory.early_stop_epoch;
+const LAST_EPOCH = EPOCHS.length ? EPOCHS[EPOCHS.length - 1].epoch : 0;
 
 const ARCHITECTURE = [
-  { label: "Input", neurons: 40, color: "bg-primary/20 border-primary" },
+  { label: "Input", neurons: annHistory.n_features, color: "bg-primary/20 border-primary" },
   { label: "Dense", neurons: 128, color: "bg-primary/30 border-primary" },
   { label: "BN+ReLU", neurons: 128, color: "bg-success/20 border-success" },
   { label: "Dropout", neurons: "0.4", color: "bg-warning/20 border-warning" },
@@ -34,15 +39,16 @@ const ARCHITECTURE = [
   { label: "Output", neurons: 1, color: "bg-destructive/20 border-destructive" },
 ];
 
-const TRAINING_CONFIG = [
-  ["Optimizer", "Adam (lr=0.0005)"],
+const hp = annHistory.hyperparams;
+const TRAINING_CONFIG: [string, string][] = [
+  ["Optimizer", `Adam (lr=${hp.lr})`],
   ["Loss", "BCEWithLogitsLoss"],
-  ["Batch Size", "64"],
+  ["Batch Size", String(hp.batch_size)],
   ["Device", "CPU"],
-  ["Epochs", "40 (stopped at 20)"],
-  ["Patience", "5 epochs"],
-  ["pos_weight", "2.77"],
-  ["Scheduler", "None"],
+  ["Epochs", `${hp.max_epochs} (ran ${LAST_EPOCH}, best @ ${BEST_EPOCH})`],
+  ["Patience", `${hp.patience} epochs`],
+  ["Test ROC-AUC", String(annHistory.test_auc)],
+  ["Best Val Loss", String(annHistory.best_val_loss)],
 ];
 
 export default function ANNTraining() {
@@ -51,31 +57,27 @@ export default function ANNTraining() {
   return (
     <div className="space-y-6">
 
-      {/* Context banner */}
-      <div className={`rounded-lg px-4 py-3 text-sm flex flex-wrap gap-4 ${
-        results ? "bg-muted/40 text-muted-foreground" : "bg-muted/20 text-muted-foreground/60"
-      }`}>
-        {results ? (
+      {/* Provenance banner — real recorded run, not synthetic */}
+      <div className="rounded-lg px-4 py-3 text-sm flex flex-wrap gap-4 bg-muted/40 text-muted-foreground">
+        {results && (
           <>
             <span>
               Dataset: <strong className="text-foreground">
-                {results.eda.total_customers.toLocaleString()} rows
+                {results.eda?.total_customers?.toLocaleString?.() ?? "—"} rows
               </strong>
             </span>
             <span>
               Churn rate: <strong className="text-foreground">
-                {(results.eda.churn_rate * 100).toFixed(1)}%
+                {results.eda?.churn_rate != null ? (results.eda.churn_rate * 100).toFixed(1) + "%" : "—"}
               </strong>
             </span>
-            <span className="text-xs opacity-60">
-              Training curve = notebook experiment; ANN not in live pipeline
-            </span>
           </>
-        ) : (
-          <span>
-            Training curve from notebook experiment — run pipeline for live dataset context
-          </span>
         )}
+        <span className="text-xs">
+          Real recorded PyTorch run ({EPOCHS.length} epochs, best val loss at epoch {BEST_EPOCH},
+          test ROC-AUC {annHistory.test_auc}). Seed {annHistory.seed}. The ANN is a research
+          reference — it is not part of the live backend pipeline.
+        </span>
       </div>
 
       {/* Architecture */}
@@ -95,13 +97,13 @@ export default function ANNTraining() {
         </div>
       </ChartCard>
 
-      {/* Training curves */}
+      {/* Training curves — real per-epoch losses */}
       <ChartCard
         title="Training Curves"
-        subtitle={`Early stopping at epoch ${EARLY_STOP_EPOCH} — notebook experiment`}
+        subtitle={`Recorded per-epoch loss — best validation loss at epoch ${BEST_EPOCH}`}
       >
         <ResponsiveContainer width="100%" height={300}>
-          <LineChart data={ANN_TRAINING_CURVE}>
+          <LineChart data={EPOCHS}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis
               dataKey="epoch"
@@ -109,32 +111,17 @@ export default function ANNTraining() {
               label={{ value: "Epoch", position: "insideBottom", offset: -4, fontSize: 10 }}
             />
             <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-            <Tooltip />
+            <Tooltip formatter={(v: number) => v.toFixed(4)} />
 
             <ReferenceLine
-              x={EARLY_STOP_EPOCH}
+              x={BEST_EPOCH}
               stroke={CHART_COLORS[3]}
               strokeDasharray="5 5"
-              label={{ value: "Early Stop", fill: "hsl(var(--destructive))", fontSize: 10 }}
+              label={{ value: "Best (restored)", fill: "hsl(var(--destructive))", fontSize: 10 }}
             />
 
-            <Line
-              type="monotone"
-              dataKey="trainLoss"
-              stroke={CHART_COLORS[0]}
-              dot={false}
-              strokeWidth={2}
-              name="Train Loss"
-            />
-
-            <Line
-              type="monotone"
-              dataKey="valLoss"
-              stroke={CHART_COLORS[1]}
-              dot={false}
-              strokeWidth={2}
-              name="Val Loss"
-            />
+            <Line type="monotone" dataKey="trainLoss" stroke={CHART_COLORS[0]} dot={false} strokeWidth={2} name="Train Loss" />
+            <Line type="monotone" dataKey="valLoss" stroke={CHART_COLORS[1]} dot={false} strokeWidth={2} name="Val Loss" />
           </LineChart>
         </ResponsiveContainer>
       </ChartCard>

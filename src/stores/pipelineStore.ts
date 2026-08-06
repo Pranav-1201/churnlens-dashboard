@@ -191,6 +191,13 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
   setCurrency: (c) => set({ currency: c }),
 }));
 
+// Dev-only: expose the store for debugging and manual QA in the browser console.
+// Gated by import.meta.env.DEV so it is stripped from production builds.
+if (import.meta.env.DEV && typeof window !== "undefined") {
+  (window as unknown as { __pipelineStore?: typeof usePipelineStore }).__pipelineStore =
+    usePipelineStore;
+}
+
 // ============================================
 // POLLING LOGIC
 // ============================================

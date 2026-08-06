@@ -76,19 +76,39 @@ export default function SettingsPage() {
         </div>
       </ChartCard>
 
-      <ChartCard title="Cost Constants" subtitle="Changing these affects threshold optimization">
+      <ChartCard
+        title="Cost Constants"
+        subtitle="Sent to the backend, which recomputes the cost curve on validation predictions"
+      >
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">FN Cost (missed churner)</label>
-              <Input type="number" value={fn} onChange={(e) => setFn(+e.target.value)} />
+              <Input type="number" min={1} value={fn} onChange={(e) => setFn(+e.target.value)} />
             </div>
             <div>
               <label className="text-sm text-muted-foreground mb-1 block">FP Cost (false alarm)</label>
-              <Input type="number" value={fp} onChange={(e) => setFp(+e.target.value)} />
+              <Input type="number" min={1} value={fp} onChange={(e) => setFp(+e.target.value)} />
             </div>
           </div>
-          <Button onClick={() => { setCosts(fn, fp); toast.success('Costs updated'); }} size="sm">Update Costs</Button>
+          <Button
+            onClick={() => {
+              if (fn <= 0 || fp <= 0) {
+                toast.error('Costs must be greater than zero');
+                return;
+              }
+              setCosts(fn, fp);
+              toast.success('Costs updated — cost curve will be recomputed');
+            }}
+            size="sm"
+          >
+            Update Costs
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            The Threshold Optimization and Business Analysis pages re-request their curves from the
+            backend with these values. No retraining is needed — the stored out-of-fold predictions
+            are re-scored at every threshold.
+          </p>
         </div>
       </ChartCard>
 

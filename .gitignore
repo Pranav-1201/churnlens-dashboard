@@ -19,5 +19,10 @@ catboost_info/
 # models/*.pkl
 
 node_modules/
+dist/
 *.pt
 notebooks/models/
+backend/catboost_info/
+
+# Warm-start cache (regenerated each run by backend/seed_demo_run.py or a pipeline run)
+models/last_run.json

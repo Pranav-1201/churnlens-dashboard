@@ -93,7 +93,11 @@ export interface ModelMetric {
   accuracy: number;
   roc_auc: number;
   pr_auc?: number | null;
+
+  /** Validation (out-of-fold) business cost — the model-selection criterion.
+   *  NOT a test-set number; see `cost_basis`. */
   cost?: number | null;
+  cost_basis?: "validation_oof" | string;
 
   // ranking / selection
   status: "Selected" | "Runner-up" | "Baseline" | string;

@@ -33,10 +33,31 @@ Most ML projects optimize for accuracy.
 
 ## 💰 Cost-Sensitive Learning (Core Innovation)
 
-* False Negative (missed churner) → ₹10,000 loss
-* False Positive (unnecessary offer) → ₹500 cost
+The FN/FP costs are **derived from the dataset**, not guessed. The old hardcoded
+₹10,000 / ₹500 were arbitrary magic numbers; they are now computed with a
+documented CLV formula (`derive_costs()` in `backend/pipeline.py`):
+
+* **FN (missed churner)** = `avg_monthly_charges × retained_lifetime_months × gross_margin`
+  — the margin on the revenue a churner would have produced over a typical
+  retained customer's lifetime. On the Telco data: `64.76 × 37.57 × 0.30 ≈ 730`.
+* **FP (wasted retention offer)** = `retention_discount × avg_monthly_charges × offer_duration_months`
+  — the incentive spent on a non-churner. On the Telco data: `0.20 × 64.76 × 3 ≈ 39`.
+
+Documented assumptions (challengeable, in one place): gross margin 30%, retention
+offer = 20% off for 3 months. A user can still override both costs live; the
+derived values are only the default.
 
 👉 Model is optimized to **minimize total cost**, not maximize accuracy.
+
+### Cost-ratio sensitivity — the optimum is not a fixed point
+
+The dashboard's **Cost-Ratio Sensitivity** chart (`GET /cost-sensitivity`) sweeps
+the FN/FP ratio and shows the cost-optimal threshold move accordingly — computed
+from the same out-of-fold predictions via the real cost curve. On the demo run
+the optimal threshold falls from **0.67** (ratio 1:1) to **0.02** (ratio 100:1)
+as missing a churner gets more expensive, with recall rising 0.39 → 0.99. A single
+fixed threshold (or cost) is a red flag: the right operating point depends on the
+ratio.
 
 ---
 
@@ -45,52 +66,81 @@ Most ML projects optimize for accuracy.
 Instead of default `0.5`, the project:
 
 * Tests multiple thresholds
-* Selects **cost-optimal threshold**
+* Selects the **cost-optimal threshold on out-of-fold validation data only** — the test set is never used for tuning
 
-📉 Result:
+📉 Result (deployed model, single evaluation on the held-out test set):
 
-* Default cost: ₹944,000
-* Optimized cost: ₹382,500
-* 💸 Savings: **₹561,500**
+* Cost at default threshold 0.5: ₹1,025,500
+* Cost at the locked threshold 0.07: ₹419,500
+* 💸 Savings: **₹606,000 (59% cost reduction)**
+
+> **A note on honesty:** earlier versions of this project tuned the threshold
+> *on the test set* and reported ₹382,500–₹392,500. That number was leaked —
+> the test set was used for model selection, threshold tuning, *and* the final
+> report. The protocol was rebuilt (validation-only selection, one look at the
+> test set) and the corrected figure is ₹419,500. A smaller number, but one
+> that generalizes — finding and fixing this is part of the project story.
+
+### Interactive cost curve (dashboard)
+
+The dashboard's **Cost vs Threshold** chart (Threshold Optimization and Business
+Analysis pages) is computed by the backend, not the browser. For the selected
+model, the backend evaluates an **exact confusion matrix at 99 thresholds** over
+its **out-of-fold validation predictions** and returns the curve
+(`GET /threshold-curve?cost_fn=&cost_fp=`). The FN/FP cost inputs on the Settings
+page are sent with that request, so changing them recomputes the curve
+server-side — no retraining, and nothing about the curve is synthesised on the
+client.
+
+> An earlier version of the dashboard faked this chart: it extrapolated the whole
+> curve from a single confusion matrix with a sigmoid/exponential ramp, and the
+> cost inputs never left the browser. That is fixed; regression tests
+> (`tests/test_threshold_curve*.py`, `src/hooks/useThresholdCurve.test.tsx`)
+> assert every plotted point equals a direct confusion-matrix cost and that the
+> curve moves when the costs change.
+
+> **"Cost" in the model-comparison table is validation cost.** The per-model
+> cost shown on the Model Comparison page is the **out-of-fold (validation)**
+> business cost — the exact quantity model selection minimises. It is *not* a
+> test-set number; the held-out test set is scored once, in the final summary.
 
 ---
 
 ## 📊 Business Impact Visualization
 
-![alt text](image.png)
-![alt text](image-1.png)
-```
-images/cost_vs_threshold.png
-images/shap_summary.png
-```
+![SHAP global importance](notebooks/shap_global_xgboost.png)
+![Calibration curves](notebooks/calibration_curves.png)
 
 ---
 
 ## 🧠 Business-Driven Model Selection
 
-Even after training advanced models:
+Seven models compete (LR, Decision Tree, Random Forest, XGBoost, LightGBM,
+CatBoost, Stacking) and the winner is picked by **lowest out-of-fold
+validation cost**, not accuracy.
 
-* XGBoost
-* LightGBM
-* CatBoost
-* Stacking
-* ANN
+👉 Deployed model: **CatBoost** (validation cost ₹1,618,500, threshold 0.07)
 
-👉 Final selected model: **Logistic Regression**
-
-✔ Reason: **Lowest business cost**, not highest accuracy
+The top models are statistically close — the notebook's McNemar/DeLong
+significance tests show CatBoost, XGBoost and the stacking ensemble are within
+noise of each other, and the research notebook's slightly different candidate
+pool (it adds an Optuna-tuned LR and an early-stopped XGBoost variant) selects
+XGBoost at an equivalent honest test cost (₹395,500). The deployed artifact is
+always whatever wins the reproducible `python backend/train.py` run.
 
 ---
 
 ## ⚙️ Complete ML Pipeline
 
 ```
-![alt text](image-2.png)
-Data Loading → EDA → Cleaning → Feature Engineering →
-Encoding → Training → Evaluation →
-Threshold Optimization → Business Analysis →
-Model Saving → Inference
+Data Loading → EDA → Cleaning → sklearn Pipeline (Feature Engineering +
+Encoding + Model) → Out-of-Fold Validation (threshold + model selection) →
+Single Test-Set Evaluation → Artifact Saving → Inference
 ```
+
+The preprocessing and the model live in **one fitted `sklearn.Pipeline`**,
+serialized as a single artifact — training and inference cannot encode a
+customer differently by construction.
 
 ---
 
@@ -138,29 +188,54 @@ Model Saving → Inference
 
 ## 📊 Final Results
 
-| Model               | ROC-AUC | Cost (₹)            |
-| ------------------- | ------- | ------------------- |
-| Logistic Regression | ~0.845  | **₹392,500 (Best)** |
-| ANN                 | ~0.845  | ₹383,500            |
-| Stacking            | ~0.846  | ₹400,500            |
+Model comparison — **validation (out-of-fold) cost**, which is what selection
+uses (per-model thresholds are also chosen on validation only):
 
-👉 Final Model: **Logistic Regression (Cost-Optimal)**
+| Model                | CV ROC-AUC | Validation Cost (₹) | Status     |
+| -------------------- | ---------- | ------------------- | ---------- |
+| CatBoost             | 0.8437     | **1,618,500**       | ✅ Selected |
+| XGBoost (Calibrated) | 0.8434     | 1,642,000           | Runner-up  |
+| LightGBM             | 0.8330     | 1,658,000           | Evaluated  |
+| Stacking Ensemble    | 0.8490     | 1,662,000           | Evaluated  |
+| Logistic Regression  | 0.8476     | 1,695,000           | Evaluated  |
+| Random Forest        | 0.8395     | 1,727,000           | Evaluated  |
+| Decision Tree        | 0.8215     | 1,944,500           | Evaluated  |
+
+Final held-out test evaluation (performed **once**, after model + threshold
+were locked): **test ROC-AUC 0.8408, test cost ₹419,500** vs ₹1,025,500 at the
+default threshold.
+
+The PyTorch ANN is trained in the notebook for reference (test ROC-AUC ~0.84)
+but is **excluded from cost-based selection** — it has no out-of-fold
+probabilities, so including it would not be an apples-to-apples comparison.
+
+👉 Final Model: **CatBoost (cost-optimal on validation)**
 
 ---
 
 ## 📂 Project Structure
 
 ```
+├── backend/                  # FastAPI app + training pipeline
+│   ├── main.py               #   API endpoints (/run-pipeline, /predict, ...)
+│   ├── pipeline.py            #   training, OOF validation, selection, SHAP
+│   ├── features.py            #   THE single raw-row -> features code path
+│   ├── predictor.py           #   single-customer inference over the artifact
+│   ├── model_loader.py        #   artifact loading
+│   ├── train.py               #   one-command reproduction (python train.py)
+│   ├── schemas.py             #   pydantic request/response models
+│   └── job_store.py           #   in-memory async job tracking
+├── src/                       # React + TypeScript dashboard (Vite, shadcn/ui)
 ├── data/
-│   └── raw/
-│       └── telco_churn.csv
+│   └── telco_churn.csv
 ├── models/
-│   └── churn_model.pkl
-├── notebook/
-│   └── churn_pipeline.ipynb
-├── images/
-│   └── (plots here)
-├── README.md
+│   └── churn_model.pkl        # single artifact: pipeline + threshold + metadata
+├── notebooks/
+│   └── Cuatomer_Churn_Model.ipynb   # research notebook (mirrors the pipeline)
+├── tests/                     # pytest: encoding regression + API consistency
+├── AUDIT.md                   # findings from the correctness audit
+├── requirements.txt
+└── README.md
 ```
 
 ---
@@ -195,18 +270,32 @@ import pickle
 import pandas as pd
 
 with open("models/churn_model.pkl", "rb") as f:
-    saved_obj = pickle.load(f)
+    artifact = pickle.load(f)
 
-model = saved_obj["model"]
-threshold = saved_obj["threshold"]
-features = saved_obj["feature_names"]
+pipeline = artifact["pipeline"]     # full sklearn Pipeline: raw rows in, probabilities out
+threshold = artifact["threshold"]   # cost-optimal threshold (chosen on validation)
+metadata = artifact["metadata"]     # model name, feature names, training date, git commit
 
-# Example input
-input_df = pd.DataFrame([...])
+# Raw customer rows — no manual encoding, the pipeline does everything
+input_df = pd.DataFrame([{
+    "gender": "Female", "SeniorCitizen": 0, "Partner": "Yes", "Dependents": "No",
+    "tenure": 24, "PhoneService": "Yes", "MultipleLines": "Yes",
+    "InternetService": "Fiber optic", "OnlineSecurity": "Yes", "OnlineBackup": "No",
+    "DeviceProtection": "Yes", "TechSupport": "No", "StreamingTV": "Yes",
+    "StreamingMovies": "No", "Contract": "One year", "PaperlessBilling": "Yes",
+    "PaymentMethod": "Credit card (automatic)", "MonthlyCharges": 95.0,
+    "TotalCharges": 2280.0,
+}])
 
-# Use pipeline-safe prediction
-preds = model.predict_proba(input_df)[:, 1]
-predictions = (preds >= threshold).astype(int)
+probs = pipeline.predict_proba(input_df)[:, 1]
+predictions = (probs >= threshold).astype(int)
+```
+
+To retrain from scratch and regenerate the artifact:
+
+```bash
+cd backend
+python train.py
 ```
 
 ---
@@ -223,9 +312,9 @@ predictions = (preds >= threshold).astype(int)
 ## 📌 Key Takeaways
 
 ✔ Accuracy alone is misleading
-✔ Threshold tuning is critical
+✔ Threshold tuning is critical — but only on validation data, never the test set
 ✔ Business cost should drive ML decisions
-✔ Simpler models can outperform complex ones
+✔ An honest, smaller number beats an inflated, leaked one
 
 ---
 

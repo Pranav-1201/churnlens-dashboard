@@ -70,15 +70,19 @@ export default function ModelComparison() {
         <p className="text-muted-foreground text-sm">
           Best: <strong>{best_model}</strong> | Threshold: {best_threshold} | FN: {currency}{cost_fn.toLocaleString()} | FP: {currency}{cost_fp.toLocaleString()}
         </p>
+        <p className="text-muted-foreground text-xs mt-1">
+          Cost figures below are <strong>validation (out-of-fold)</strong> costs — the basis on which
+          the model and its threshold were selected. The test set is scored only once, in the final summary.
+        </p>
       </div>
 
       {/* LEADERBOARD TABLE */}
-      <ChartCard title="Leaderboard" subtitle="Ranked by business cost">
+      <ChartCard title="Leaderboard" subtitle="Ranked by validation (out-of-fold) cost">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                {["Rank", "Model", "Accuracy", "ROC-AUC", "PR-AUC", "Cost", "Status"].map((h) => (
+                {["Rank", "Model", "Accuracy", "ROC-AUC", "PR-AUC", "Validation Cost", "Status"].map((h) => (
                   <th key={h} className="text-left py-2 text-muted-foreground font-medium pr-4">
                     {h}
                   </th>
@@ -142,7 +146,7 @@ export default function ModelComparison() {
         </ChartCard>
 
         {/* ✅ FIXED: fill={CHART_COLORS[1]} added */}
-        <ChartCard title="Business Cost Comparison">
+        <ChartCard title="Validation Cost Comparison" subtitle="Out-of-fold cost — the selection criterion">
           <ResponsiveContainer width="100%" height={300}>
             <BarChart data={byCost.map((m) => ({ name: shortName(m.name), cost: m.cost, fullName: m.name }))}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -166,7 +170,7 @@ export default function ModelComparison() {
       </div>
 
       {/* CONFUSION MATRICES — mini cards */}
-      <ChartCard title="Confusion Matrices">
+      <ChartCard title="Confusion Matrices" subtitle="Held-out test set, at the default threshold 0.50">
         <div className="flex flex-wrap gap-4">
           {models.map((m) => (
             <div

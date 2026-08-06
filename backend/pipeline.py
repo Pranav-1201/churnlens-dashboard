@@ -1,69 +1,149 @@
 """
-pipeline.py  -- ChurnLens (FULLY FIXED to match notebook)
+pipeline.py — ChurnLens training pipeline.
 
-Fixes applied:
-  1. Feature engineering EXACTLY matches notebook Section 6
-  2. Encoding matches notebook Section 7 (pd.get_dummies on full df)
-  3. NO global StandardScaler -- LR uses Pipeline scaler, trees use raw data
-  4. XGBoost params match notebook Section 13 (with early stopping + calibration)
-  5. All model hyperparams match notebook exactly
-  6. Cost search uses np.linspace(0.01, 0.99, 50)
-  7. LightGBM retrains on full train data like notebook
-  8. Stacking uses RF + LR(pipeline) + LGB like notebook
+Correctness contract (Phase 1 fix pass, see AUDIT.md):
+  * Every model is a single sklearn Pipeline (engineer -> encode -> model) built in
+    features.py — the same object used verbatim at inference. No hand-rolled
+    get_dummies/reindex anywhere (fixes §3.A / brief #8 by construction).
+  * Thresholds and the winning model are chosen ONLY on out-of-fold predictions
+    over the training split (StratifiedKFold). The test set is evaluated exactly
+    once, at the end, with the model and threshold already locked in
+    (fixes brief #1/#2 and §4.C — this includes CatBoost's CV).
+  * Per-customer SHAP rows are mapped back by index LABEL, not position (§4.E).
+  * Risk bands derive from the actual decision threshold (§4.F).
 """
 
-import pandas as pd
-import numpy as np
-import warnings
+import logging
+import os
+import pickle
+import subprocess
 import traceback
+import warnings
+from datetime import datetime, timezone
 from typing import Callable, Optional
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LogisticRegression
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, StackingClassifier
-from sklearn.metrics import (
-    accuracy_score, roc_auc_score, average_precision_score,
-    confusion_matrix,
-)
+import numpy as np
+import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.pipeline import Pipeline, make_pipeline
-import shap
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score, average_precision_score, confusion_matrix, roc_auc_score,
+)
+from sklearn.model_selection import StratifiedKFold, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.tree import DecisionTreeClassifier
+import sklearn
 
-# Optional boosting imports -- gracefully degrade if not installed
+from features import (
+    build_catboost_pipeline,
+    build_model_pipeline,
+    engineer_features,
+    feature_names_of,
+    risk_level,
+)
+
+# shap is imported lazily inside the explainer helpers (_get_explainer) so that
+# importing this module — and therefore starting the FastAPI app — never requires
+# shap to be installed. SHAP only loads when values are actually computed.
+logger = logging.getLogger(__name__)
+
+# Optional boosting imports — gracefully degrade if not installed
 try:
     from xgboost import XGBClassifier
     HAS_XGB = True
 except ImportError:
     HAS_XGB = False
-    print("[WARNING] xgboost not installed -- XGBoost model will be skipped")
+    logger.warning("xgboost not installed -- XGBoost model will be skipped")
 
 try:
     from lightgbm import LGBMClassifier
     HAS_LGB = True
 except ImportError:
     HAS_LGB = False
-    print("[WARNING] lightgbm not installed -- LightGBM model will be skipped")
+    logger.warning("lightgbm not installed -- LightGBM model will be skipped")
 
 try:
-    from catboost import CatBoostClassifier
+    from catboost import CatBoostClassifier, Pool
     HAS_CAT = True
 except ImportError:
     HAS_CAT = False
-    print("[WARNING] catboost not installed -- CatBoost model will be skipped")
+    logger.warning("catboost not installed -- CatBoost model will be skipped")
 
 warnings.filterwarnings("ignore")
 
+# Fallback costs, used only if derivation from data is impossible. These are the
+# original hardcoded guesses, kept solely as a last resort — real runs derive
+# costs from the dataset via derive_costs() below.
 COST_FN = 10_000
 COST_FP = 500
 
+RANDOM_STATE = 42
 
-# -- Data cleaning ------------------------------------
+# ── Cost derivation (replaces the hardcoded COST_FN/COST_FP guess) ────────────
+# Assumptions, documented so a reviewer can challenge them:
+GROSS_MARGIN = 0.30            # telecom gross margin — a missed churner loses
+                              #   margin, not gross revenue
+RETENTION_DISCOUNT = 0.20     # a retention offer is ~20% off ...
+OFFER_DURATION_MONTHS = 3     #   ... for ~3 months
+
+
+def derive_costs(df: pd.DataFrame) -> tuple[int, int, dict]:
+    """Derive FN/FP costs from the dataset instead of guessing them.
+
+    FN (missed churner)  = expected remaining customer lifetime value lost
+        = mean(MonthlyCharges) * mean_tenure_of_retained_customers * GROSS_MARGIN
+      i.e. the margin on the revenue a churner would have produced over a typical
+      retained customer's lifetime.
+
+    FP (wasted retention offer) = the incentive spent on a customer who was not
+      going to churn
+        = RETENTION_DISCOUNT * mean(MonthlyCharges) * OFFER_DURATION_MONTHS
+
+    Returns (cost_fn, cost_fp, derivation) where `derivation` documents every
+    input so the dashboard can show the formula. Falls back to COST_FN/COST_FP
+    if the required columns are missing.
+    """
+    if "MonthlyCharges" not in df.columns or "tenure" not in df.columns:
+        return COST_FN, COST_FP, {"method": "fallback_constants",
+                                  "reason": "MonthlyCharges/tenure missing"}
+
+    mc = pd.to_numeric(df["MonthlyCharges"], errors="coerce")
+    avg_monthly = float(mc.mean())
+
+    # Lifetime proxy: how long a *retained* customer stays.
+    if "Churn" in df.columns:
+        churn = df["Churn"].astype(str).str.strip().str.lower()
+        retained_tenure = pd.to_numeric(df.loc[churn == "no", "tenure"], errors="coerce")
+        lifetime = float(retained_tenure.mean()) if retained_tenure.notna().any() \
+            else float(pd.to_numeric(df["tenure"], errors="coerce").mean())
+    else:
+        lifetime = float(pd.to_numeric(df["tenure"], errors="coerce").mean())
+
+    cost_fn = int(round(avg_monthly * lifetime * GROSS_MARGIN))
+    cost_fp = int(round(RETENTION_DISCOUNT * avg_monthly * OFFER_DURATION_MONTHS))
+    cost_fp = max(cost_fp, 1)  # guard against zero
+
+    derivation = {
+        "method": "clv_derived",
+        "avg_monthly_charges": round(avg_monthly, 2),
+        "retained_lifetime_months": round(lifetime, 2),
+        "gross_margin": GROSS_MARGIN,
+        "retention_discount": RETENTION_DISCOUNT,
+        "offer_duration_months": OFFER_DURATION_MONTHS,
+        "cost_fn": cost_fn,
+        "cost_fp": cost_fp,
+        "cost_fn_formula": "avg_monthly_charges * retained_lifetime_months * gross_margin",
+        "cost_fp_formula": "retention_discount * avg_monthly_charges * offer_duration_months",
+    }
+    return cost_fn, cost_fp, derivation
+
+
+# ── Data cleaning ────────────────────────────────────────────────────────────
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
-    # Validate required columns
     REQUIRED_COLUMNS = ["tenure", "MonthlyCharges", "TotalCharges", "Churn"]
     missing_required = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing_required:
@@ -73,169 +153,208 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
             f"Please check your CSV file and ensure these columns exist."
         )
 
-    # Match notebook Section 5 exactly:
-    # 1. Convert TotalCharges to numeric
-    if "TotalCharges" in df.columns:
-        df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
-        # Set TotalCharges = 0 where tenure = 0
-        df.loc[df["tenure"] == 0, "TotalCharges"] = 0
-        # Fill remaining NaN with median
-        df["TotalCharges"] = df["TotalCharges"].fillna(df["TotalCharges"].median())
+    df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors="coerce")
+    df.loc[df["tenure"] == 0, "TotalCharges"] = 0
+    df["TotalCharges"] = df["TotalCharges"].fillna(df["TotalCharges"].median())
 
-    # 2. Encode Churn
-    if "Churn" in df.columns:
-        df["Churn"] = df["Churn"].map({"Yes": 1, "No": 0})
-        df = df[df["Churn"].notna()]
+    df["Churn"] = df["Churn"].map({"Yes": 1, "No": 0})
+    df = df[df["Churn"].notna()]
 
-    # 3. Drop customerID
     if "customerID" in df.columns:
         df.drop(columns=["customerID"], inplace=True)
 
-    print("DEBUG: rows after cleaning =", len(df))
     return df
 
 
-# -- Feature engineering -- EXACTLY matches notebook Section 6 --
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-
-    # 1. Tenure-based features
-    # Notebook: df['Tenure_to_Charges'] = df['tenure'] / (df['MonthlyCharges'] + 1)
-    df["Tenure_to_Charges"] = df["tenure"] / (df["MonthlyCharges"] + 1)
-
-    # Notebook: TenureGroup with bins=[-1, 12, 24, 48, 72]
-    df["TenureGroup"] = pd.cut(
-        df["tenure"],
-        bins=[-1, 12, 24, 48, 72],
-        labels=["New", "Short-Term", "Mid-Term", "Long-Term"],
-    )
-
-    # 2. Customer value features
-    df["AvgMonthlyCharge"] = df["TotalCharges"] / (df["tenure"] + 1)
-    df["HighSpender"] = (df["MonthlyCharges"] > 80).astype(int)
-
-    # 3. Service usage features -- notebook uses EXACTLY these 6 columns
-    df["ServiceCount"] = (
-        (df["OnlineSecurity"] == "Yes").astype(int) +
-        (df["OnlineBackup"] == "Yes").astype(int) +
-        (df["DeviceProtection"] == "Yes").astype(int) +
-        (df["TechSupport"] == "Yes").astype(int) +
-        (df["StreamingTV"] == "Yes").astype(int) +
-        (df["StreamingMovies"] == "Yes").astype(int)
-    )
-    df["LowEngagement"] = (df["ServiceCount"] <= 2).astype(int)
-
-    # 4. Contract & Internet features
-    if "Contract" in df.columns:
-        df["IsMonthToMonth"] = (df["Contract"] == "Month-to-month").astype(int)
-    else:
-        df["IsMonthToMonth"] = 0
-    if "InternetService" in df.columns:
-        df["FiberUser"] = (df["InternetService"] == "Fiber optic").astype(int)
-    else:
-        df["FiberUser"] = 0
-
-    return df
+# ── Cost / threshold ─────────────────────────────────────────────────────────
+def business_cost(y_true, y_pred, cost_fn=COST_FN, cost_fp=COST_FP) -> int:
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    return int(fn * cost_fn + fp * cost_fp)
 
 
-# -- Encoding -- EXACTLY matches notebook Section 7 ---------
-def encode_features(df: pd.DataFrame):
-    """
-    Notebook does:
-      df_encoded = pd.get_dummies(df, drop_first=True)
-      X = df_encoded.drop('Churn', axis=1)
-      y = df_encoded['Churn']
-      X.columns = X.columns.str.replace(" ", "_")
-    """
-    # One-hot encode the FULL dataframe (including Churn) to match notebook
-    df_encoded = pd.get_dummies(df, drop_first=True)
-
-    # Convert bool columns to int
-    bool_cols = df_encoded.select_dtypes(include=["bool"]).columns
-    df_encoded[bool_cols] = df_encoded[bool_cols].astype(int)
-
-    # Split X and y
-    target = "Churn"
-    X = df_encoded.drop(columns=[target])
-    y = df_encoded[target].values
-
-    # Clean feature names (match notebook)
-    X.columns = X.columns.str.replace(" ", "_")
-
-    feature_names = list(X.columns)
-
-    return X, y, feature_names
-
-
-# -- Threshold search -- EXACTLY matches notebook Section 26 --
 def find_best_threshold(y_true, y_prob, cost_fn=COST_FN, cost_fp=COST_FP):
     best_thresh, best_cost = 0.5, float("inf")
     for t in np.linspace(0.01, 0.99, 50):
         preds = (y_prob >= t).astype(int)
-        cm = confusion_matrix(y_true, preds)
-        if cm.shape != (2, 2):
-            continue
-        tn, fp, fn, tp = cm.ravel()
-        cost = fn * cost_fn + fp * cost_fp
+        cost = business_cost(y_true, preds, cost_fn, cost_fp)
         if cost < best_cost:
             best_cost = cost
-            best_thresh = t
+            best_thresh = float(t)
     return best_thresh, best_cost
 
 
-# -- SHAP explainer selection -----------------
+# Shared grid for the published cost-vs-threshold curve (0.01..0.99, step 0.01).
+THRESHOLD_GRID = np.round(np.arange(0.01, 1.00, 0.01), 2)
+
+
+def cost_threshold_curve(y_true, y_prob, cost_fn=COST_FN, cost_fp=COST_FP, grid=None):
+    """Real precision/recall/F1/cost at each threshold, computed directly from
+    (y_true, y_prob) — no interpolation, no simulation.
+
+    Used for both the shipped curve (on out-of-fold validation predictions) and
+    the /threshold-curve endpoint (recomputed with caller-supplied costs). Every
+    point is an exact confusion-matrix evaluation, so the plotted cost equals
+    fn*cost_fn + fp*cost_fp by construction (see tests/test_threshold_curve.py).
+    """
+    y_true = np.asarray(y_true).astype(int)
+    y_prob = np.asarray(y_prob, dtype=float)
+    if grid is None:
+        grid = THRESHOLD_GRID
+
+    rows = []
+    for t in grid:
+        t = float(t)
+        pred = (y_prob >= t).astype(int)
+        tp = int(np.sum((pred == 1) & (y_true == 1)))
+        fp = int(np.sum((pred == 1) & (y_true == 0)))
+        fn = int(np.sum((pred == 0) & (y_true == 1)))
+        tn = int(np.sum((pred == 0) & (y_true == 0)))
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+        rows.append({
+            "threshold": round(t, 2),
+            "precision": round(precision, 4),
+            "recall": round(recall, 4),
+            "f1": round(f1, 4),
+            "tp": tp, "fp": fp, "fn": fn, "tn": tn,
+            "cost": int(fn * cost_fn + fp * cost_fp),
+        })
+    return rows
+
+
+DEFAULT_COST_RATIOS = [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100]
+
+
+def cost_sensitivity_curve(y_true, y_prob, cost_fp=COST_FP, ratios=None):
+    """How the cost-optimal threshold and its cost shift as the FN/FP cost ratio
+    varies. FP cost is held fixed; FN = ratio * FP. Each point reuses the exact
+    cost_threshold_curve(), so nothing here is interpolated.
+
+    Demonstrates that cost-sensitive learning is not a fixed point: the operating
+    threshold you should deploy depends entirely on how much a miss costs
+    relative to a false alarm.
+    """
+    if ratios is None:
+        ratios = DEFAULT_COST_RATIOS
+    out = []
+    for r in ratios:
+        cost_fn = float(r) * float(cost_fp)
+        curve = cost_threshold_curve(y_true, y_prob, cost_fn, cost_fp)
+        opt = min(curve, key=lambda p: p["cost"])
+        out.append({
+            "ratio": float(r),
+            "cost_fn": cost_fn,
+            "cost_fp": float(cost_fp),
+            "optimal_threshold": opt["threshold"],
+            "optimal_cost": opt["cost"],
+            "recall_at_optimal": opt["recall"],
+            "precision_at_optimal": opt["precision"],
+        })
+    return out
+
+
+# ── Out-of-fold validation ───────────────────────────────────────────────────
+def oof_probabilities(builder: Callable[[], Pipeline], X: pd.DataFrame, y: np.ndarray, skf: StratifiedKFold):
+    """Out-of-fold churn probabilities on the TRAINING split only.
+
+    Every row's probability comes from a model that never saw that row, so
+    threshold search and model selection on these values are leakage-free.
+    Also returns per-fold ROC-AUC (replaces the old cross_val_score, same
+    number of fits).
+
+    `builder` returns a fresh unfitted pipeline per fold — sklearn's clone()
+    chokes on CatBoostClassifier (it mutates its class_weights param), so we
+    rebuild instead of cloning.
+    """
+    oof = np.zeros(len(y), dtype=float)
+    fold_aucs = []
+    for tr_idx, va_idx in skf.split(X, y):
+        m = builder()
+        m.fit(X.iloc[tr_idx], y[tr_idx])
+        probs = m.predict_proba(X.iloc[va_idx])[:, 1]
+        oof[va_idx] = probs
+        fold_aucs.append(float(roc_auc_score(y[va_idx], probs)))
+    return oof, fold_aucs
+
+
+def _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
+               cost_fn=COST_FN, cost_fp=COST_FP):
+    """Validate (OOF), fit on the full training split, report test metrics.
+
+    'cost' and 'threshold' come from validation (OOF) — they are what model
+    selection uses. Test-set numbers are for reporting only.
+    """
+    oof, fold_aucs = oof_probabilities(builder, X_train, y_train, skf)
+    threshold, val_cost = find_best_threshold(y_train, oof, cost_fn, cost_fp)
+
+    pipeline = builder()
+    pipeline.fit(X_train, y_train)
+    probs_test = pipeline.predict_proba(X_test)[:, 1]
+
+    y_pred_default = (probs_test >= 0.5).astype(int)
+    return {
+        "name": name,
+        "accuracy": round(accuracy_score(y_test, y_pred_default), 4),
+        "roc_auc": round(roc_auc_score(y_test, probs_test), 4),
+        "pr_auc": round(average_precision_score(y_test, probs_test), 4),
+        "cost": int(val_cost),
+        "threshold": round(float(threshold), 4),
+        "cost_basis": "validation_oof",
+        "confusion_matrix": confusion_matrix(y_test, y_pred_default).tolist(),
+        "cv_scores": [round(s, 4) for s in fold_aucs],
+        "cv_mean": round(float(np.mean(fold_aucs)), 4),
+        "cv_std": round(float(np.std(fold_aucs)), 4),
+        "_model_obj": pipeline,
+        "_probs_test": probs_test,
+        "_oof_probs": oof,
+    }
+
+
+# ── SHAP ─────────────────────────────────────────────────────────────────────
 def _get_explainer(model, X_background):
-    """
-    Pick the correct SHAP explainer based on model type.
-    """
-    if isinstance(model, Pipeline):
-        # Unwrap pipeline to get the raw model
-        inner = model.named_steps.get("model", model)
-        if isinstance(inner, LogisticRegression):
-            return shap.LinearExplainer(
-                inner, model.named_steps["scaler"].transform(X_background),
-                feature_perturbation="interventional"
-            )
+    """Pick the correct SHAP explainer for the FINAL estimator of a pipeline
+    (inputs are already encoded)."""
+    import shap  # lazy: only imported when SHAP is actually computed
 
     if isinstance(model, LogisticRegression):
-        return shap.LinearExplainer(
-            model, X_background, feature_perturbation="interventional"
-        )
-    elif isinstance(model, (RandomForestClassifier, DecisionTreeClassifier)):
+        return shap.LinearExplainer(model, X_background)
+    if isinstance(model, (RandomForestClassifier, DecisionTreeClassifier)):
         return shap.TreeExplainer(model)
-    elif HAS_XGB and isinstance(model, XGBClassifier):
+    if HAS_XGB and isinstance(model, XGBClassifier):
         return shap.TreeExplainer(model)
-    elif HAS_LGB and isinstance(model, LGBMClassifier):
+    if HAS_LGB and isinstance(model, LGBMClassifier):
         return shap.TreeExplainer(model)
-    elif HAS_CAT and isinstance(model, CatBoostClassifier):
-        return shap.TreeExplainer(model)
-    else:
-        # Stacking, calibrated, etc.
-        bg = X_background[:50] if len(X_background) > 50 else X_background
-        return shap.KernelExplainer(
-            lambda x: model.predict_proba(x)[:, 1], bg
-        )
+    bg = X_background[:50] if len(X_background) > 50 else X_background
+    return shap.KernelExplainer(lambda x: model.predict_proba(x)[:, 1], bg)
 
 
-# -- SHAP global --------------------------------------
-def compute_shap_global(model, X, feature_names, max_samples=200):
-    try:
-        sample = X[:max_samples] if len(X) > max_samples else X
-        explainer = _get_explainer(model, sample)
-        shap_vals = explainer.shap_values(sample)
-        if isinstance(shap_vals, list):
-            shap_vals = shap_vals[1]
-        mean_abs = np.abs(shap_vals).mean(axis=0)
-        return [
-            {"feature": f, "importance": round(float(v), 6)}
-            for f, v in sorted(zip(feature_names, mean_abs), key=lambda x: -x[1])
-        ]
-    except Exception as e:
-        print(f"[SHAP global] fallback zeros: {e}")
-        return [{"feature": f, "importance": 0.0} for f in feature_names]
+def _shap_matrix(best_pipeline: Pipeline, X_test_raw: pd.DataFrame, max_rows: int):
+    """SHAP values (n_rows x n_features) for the pipeline's final estimator,
+    computed in its own encoded feature space. Returns (matrix, feature_names)."""
+    prep = Pipeline(best_pipeline.steps[:-1])
+    model = best_pipeline.named_steps["model"]
+    transformed = prep.transform(X_test_raw.iloc[:max_rows])
+
+    if HAS_CAT and isinstance(model, CatBoostClassifier):
+        cat_cols = transformed.select_dtypes(include=["object"]).columns.tolist()
+        pool = Pool(transformed, cat_features=cat_cols)
+        vals = model.get_feature_importance(pool, type="ShapValues")
+        return vals[:, :-1], [str(c).replace(" ", "_") for c in transformed.columns]
+
+    X_enc = np.asarray(transformed, dtype=float)
+    explainer = _get_explainer(model, X_enc)
+    vals = explainer.shap_values(X_enc)
+    if isinstance(vals, list):  # older SHAP binary-classification format
+        vals = vals[1]
+    vals = np.asarray(vals)
+    if vals.ndim == 3:  # (n, features, classes)
+        vals = vals[:, :, 1]
+    return vals, feature_names_of(best_pipeline)
 
 
-# -- EDA summary --------------------------------------
+# ── EDA summary (unchanged) ─────────────────────────────────────────────────
 def compute_eda_summary(df_raw: pd.DataFrame) -> dict:
     df = df_raw.copy()
 
@@ -320,10 +439,31 @@ def compute_eda_summary(df_raw: pd.DataFrame) -> dict:
     }
 
 
-# -- Main entry point ---------------------------------
+# ── Artifact ─────────────────────────────────────────────────────────────────
+def _git_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"
+
+
+def save_artifact(path, pipeline, threshold, metadata):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump({"pipeline": pipeline, "threshold": float(threshold), "metadata": metadata}, f)
+
+
+# ── Main entry point ─────────────────────────────────────────────────────────
 def run_pipeline(
     df: pd.DataFrame,
     progress_callback: Optional[Callable[[int, str], None]] = None,
+    artifact_path: Optional[str] = None,
+    cost_fn: Optional[int] = None,
+    cost_fp: Optional[int] = None,
 ) -> dict:
     def progress(pct: int, msg: str):
         if progress_callback:
@@ -332,471 +472,144 @@ def run_pipeline(
     results = {}
 
     try:
+        # Costs are DERIVED from the dataset (CLV-based), not hardcoded. An
+        # explicit cost_fn/cost_fp still overrides (e.g. a user's what-if).
+        derived_fn, derived_fp, cost_derivation = derive_costs(df)
+        if cost_fn is None:
+            cost_fn = derived_fn
+        if cost_fp is None:
+            cost_fp = derived_fp
+        results["cost_derivation"] = cost_derivation
+
         progress(5, "Computing EDA summary")
         results["eda"] = compute_eda_summary(df)
 
         progress(12, "Cleaning data")
         df_clean = clean_data(df)
-
         if len(df_clean) == 0:
             raise ValueError("Dataset became empty after cleaning")
 
-        progress(22, "Engineering features")
-        df_feat = engineer_features(df_clean)
+        y_all = df_clean["Churn"].values.astype(int)
+        X_all = df_clean.drop(columns=["Churn"])
 
-        progress(30, "Encoding categorical features")
-        X, y, feature_names = encode_features(df_feat)
-
-        if len(X) == 0:
-            raise ValueError("Dataset became empty after encoding")
-
-        progress(35, "Splitting train / test sets")
-        # Notebook: train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
-        # X is a DataFrame here (matching notebook)
+        progress(20, "Splitting train / test sets")
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y,
-            test_size=0.2,
-            random_state=42,
-            stratify=y,
+            X_all, y_all, test_size=0.2, random_state=RANDOM_STATE, stratify=y_all,
         )
 
-        # Store indices for SHAP per-customer lookup
-        idx_test = X_test.index.values
+        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
 
-        # Convert to numpy for model training (after preserving indices)
-        X_train_np = X_train.values.astype(float)
-        X_test_np = X_test.values.astype(float)
-
-        # Handle any NaN from encoding
-        from sklearn.impute import SimpleImputer
-        imputer = SimpleImputer(strategy="median")
-        X_train_np = imputer.fit_transform(X_train_np)
-        X_test_np = imputer.transform(X_test_np)
-
-        # -- Scale ONLY for models that need it (LR uses Pipeline scaler) --
-        # Notebook: scaler = StandardScaler(); X_train_scaled = scaler.fit_transform(X_train)
-        # But ONLY used for ANN. All sklearn models train on UNSCALED data.
-        # LR wraps its own StandardScaler inside a Pipeline.
-        progress(36, "Preparing data")
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train_np)
-        X_test_scaled = scaler.transform(X_test_np)
-
-        # Compute class imbalance weight for XGBoost/LightGBM
-        num_negative = (y_train == 0).sum()
-        num_positive = (y_train == 1).sum()
+        num_negative = int((y_train == 0).sum())
+        num_positive = int((y_train == 1).sum())
         scale_pos_weight = num_negative / num_positive
 
-        model_results = []
+        # Categorical columns after feature engineering (for CatBoost)
+        engineered_sample = engineer_features(X_train.head(50))
+        cat_cols = engineered_sample.select_dtypes(include=["object", "category"]).columns.tolist()
 
-        # ==============================================
-        # MODEL 1: Logistic Regression (notebook Section 10)
-        # Uses Pipeline with StandardScaler -- trains on UNSCALED data
-        # ==============================================
-        progress(38, "Training Logistic Regression")
-        try:
-            log_pipeline = Pipeline([
-                ('scaler', StandardScaler()),
-                ('model', LogisticRegression(
-                    max_iter=1000,
-                    class_weight='balanced',
-                    n_jobs=-1
-                ))
-            ])
-            log_pipeline.fit(X_train_np, y_train)
-            y_prob = log_pipeline.predict_proba(X_test_np)[:, 1]
-            threshold, cost = find_best_threshold(y_test, y_prob)
+        # ── Model zoo: (name, progress pct, builder returning a fresh
+        #    raw-input pipeline). Builders instead of instances because the
+        #    OOF loop needs a clean unfitted model per fold. ─────────────────
+        def make_lr():
+            return build_model_pipeline(
+                LogisticRegression(max_iter=1000, class_weight="balanced", n_jobs=-1),
+                scale_numeric=True)
 
-            # Accuracy at 0.5 (notebook uses model.predict which defaults to 0.5)
-            y_pred_default = log_pipeline.predict(X_test_np)
-            cm = confusion_matrix(y_test, y_pred_default).tolist()
-            acc = round(accuracy_score(y_test, y_pred_default), 4)
-            auc = round(roc_auc_score(y_test, y_prob), 4)
-            pr = round(average_precision_score(y_test, y_prob), 4)
-
-            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            cv = cross_val_score(log_pipeline, X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1)
-
-            model_results.append({
-                "name": "Logistic Regression",
-                "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                "cost": int(cost), "threshold": threshold,
-                "confusion_matrix": cm,
-                "cv_scores": [round(float(s), 4) for s in cv],
-                "cv_mean": round(float(cv.mean()), 4),
-                "cv_std": round(float(cv.std()), 4),
-                "_model_obj": log_pipeline,
-            })
-            print(f"[pipeline] [OK] Logistic Regression: AUC={auc}, Cost={int(cost)}")
-        except Exception as e:
-            print(f"[pipeline] [FAIL] Logistic Regression failed: {e}")
-            traceback.print_exc()
-
-        # ==============================================
-        # MODEL 2: Decision Tree (notebook Section 11)
-        # Trains on UNSCALED data
-        # ==============================================
-        progress(43, "Training Decision Tree")
-        try:
-            dt_model = DecisionTreeClassifier(
+        def make_dt():
+            return build_model_pipeline(DecisionTreeClassifier(
                 max_depth=6, min_samples_split=10, min_samples_leaf=5,
-                class_weight='balanced', random_state=42
-            )
-            dt_model.fit(X_train_np, y_train)
-            y_prob = dt_model.predict_proba(X_test_np)[:, 1]
-            threshold, cost = find_best_threshold(y_test, y_prob)
+                class_weight="balanced", random_state=RANDOM_STATE))
 
-            y_pred_default = dt_model.predict(X_test_np)
-            cm = confusion_matrix(y_test, y_pred_default).tolist()
-            acc = round(accuracy_score(y_test, y_pred_default), 4)
-            auc = round(roc_auc_score(y_test, y_prob), 4)
-            pr = round(average_precision_score(y_test, y_prob), 4)
+        def make_rf():
+            return build_model_pipeline(RandomForestClassifier(
+                n_estimators=800, max_depth=None, min_samples_split=5,
+                min_samples_leaf=2, max_features="sqrt", class_weight="balanced",
+                random_state=RANDOM_STATE, n_jobs=-1))
 
-            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            cv = cross_val_score(dt_model, X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1)
+        def make_xgb():
+            base = XGBClassifier(
+                n_estimators=400, max_depth=4, learning_rate=0.05,
+                subsample=0.8, colsample_bytree=0.8,
+                scale_pos_weight=scale_pos_weight,
+                reg_alpha=0.2, reg_lambda=1.5,
+                tree_method="hist", eval_metric="auc",
+                random_state=RANDOM_STATE, n_jobs=-1, verbosity=0)
+            return build_model_pipeline(
+                CalibratedClassifierCV(base, method="isotonic", cv=5))
 
-            model_results.append({
-                "name": "Decision Tree",
-                "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                "cost": int(cost), "threshold": threshold,
-                "confusion_matrix": cm,
-                "cv_scores": [round(float(s), 4) for s in cv],
-                "cv_mean": round(float(cv.mean()), 4),
-                "cv_std": round(float(cv.std()), 4),
-                "_model_obj": dt_model,
-            })
-            print(f"[pipeline] [OK] Decision Tree: AUC={auc}, Cost={int(cost)}")
-        except Exception as e:
-            print(f"[pipeline] [FAIL] Decision Tree failed: {e}")
-            traceback.print_exc()
+        def make_lgb():
+            return build_model_pipeline(LGBMClassifier(
+                n_estimators=400, learning_rate=0.05, num_leaves=31,
+                max_depth=-1, subsample=0.8, colsample_bytree=0.8,
+                scale_pos_weight=scale_pos_weight,
+                random_state=RANDOM_STATE, n_jobs=-1, verbose=-1))
 
-        # ==============================================
-        # MODEL 3: Random Forest (notebook Section 12)
-        # Trains on UNSCALED data
-        # ==============================================
-        progress(48, "Training Random Forest")
-        try:
-            rf_weighted = RandomForestClassifier(
-                n_estimators=800, max_depth=None,
-                min_samples_split=5, min_samples_leaf=2,
-                max_features='sqrt', class_weight='balanced',
-                oob_score=True, random_state=42, n_jobs=-1
-            )
-            rf_weighted.fit(X_train_np, y_train)
-            y_prob = rf_weighted.predict_proba(X_test_np)[:, 1]
-            threshold, cost = find_best_threshold(y_test, y_prob)
+        def make_cat():
+            return build_catboost_pipeline(CatBoostClassifier(
+                iterations=500, learning_rate=0.05, depth=6, l2_leaf_reg=3,
+                eval_metric="AUC", task_type="CPU",
+                class_weights=[1, scale_pos_weight],
+                cat_features=cat_cols,
+                random_seed=RANDOM_STATE, verbose=False, allow_writing_files=False))
 
-            y_pred_default = rf_weighted.predict(X_test_np)
-            cm = confusion_matrix(y_test, y_pred_default).tolist()
-            acc = round(accuracy_score(y_test, y_pred_default), 4)
-            auc = round(roc_auc_score(y_test, y_prob), 4)
-            pr = round(average_precision_score(y_test, y_prob), 4)
-
-            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            cv = cross_val_score(rf_weighted, X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1)
-
-            model_results.append({
-                "name": "Random Forest",
-                "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                "cost": int(cost), "threshold": threshold,
-                "confusion_matrix": cm,
-                "cv_scores": [round(float(s), 4) for s in cv],
-                "cv_mean": round(float(cv.mean()), 4),
-                "cv_std": round(float(cv.std()), 4),
-                "_model_obj": rf_weighted,
-            })
-            print(f"[pipeline] [OK] Random Forest: AUC={auc}, Cost={int(cost)}")
-        except Exception as e:
-            print(f"[pipeline] [FAIL] Random Forest failed: {e}")
-            traceback.print_exc()
-
-        # ==============================================
-        # MODEL 4: XGBoost Calibrated (notebook Section 13)
-        # Uses early stopping to find best_iter, then CalibratedClassifierCV
-        # Trains on UNSCALED data
-        # ==============================================
-        xgb_model = None
-        if HAS_XGB:
-            progress(53, "Training XGBoost (Calibrated)")
-            try:
-                xgb_params = dict(
-                    n_estimators=400, max_depth=4, learning_rate=0.05,
-                    subsample=0.8, colsample_bytree=0.8,
-                    scale_pos_weight=scale_pos_weight,
-                    reg_alpha=0.2, reg_lambda=1.5,
-                    tree_method="hist", eval_metric="auc",
-                    random_state=42, n_jobs=-1
-                )
-
-                # Early stopping to find best iteration
-                X_train_xgb, X_val_xgb, y_train_xgb, y_val_xgb = train_test_split(
-                    X_train_np, y_train, test_size=0.2,
-                    stratify=y_train, random_state=42
-                )
-                xgb_temp = XGBClassifier(**xgb_params, early_stopping_rounds=50, verbosity=0)
-                xgb_temp.fit(X_train_xgb, y_train_xgb,
-                             eval_set=[(X_val_xgb, y_val_xgb)], verbose=False)
-                best_iter = xgb_temp.best_iteration
-                print(f"[pipeline] XGBoost best iteration: {best_iter}")
-
-                # Final base model with best_iter estimators
-                base_xgb = XGBClassifier(
-                    n_estimators=best_iter, max_depth=4, learning_rate=0.05,
-                    subsample=0.8, colsample_bytree=0.8,
-                    scale_pos_weight=scale_pos_weight,
-                    reg_alpha=0.2, reg_lambda=1.5,
-                    tree_method="hist", eval_metric="auc",
-                    random_state=42, n_jobs=-1, verbosity=0
-                )
-                base_xgb.fit(X_train_np, y_train)
-
-                # Probability calibration
-                xgb_model = CalibratedClassifierCV(base_xgb, method="isotonic", cv=5)
-                xgb_model.fit(X_train_np, y_train)
-
-                y_prob = xgb_model.predict_proba(X_test_np)[:, 1]
-                threshold, cost = find_best_threshold(y_test, y_prob)
-
-                y_pred_default = xgb_model.predict(X_test_np)
-                cm = confusion_matrix(y_test, y_pred_default).tolist()
-                acc = round(accuracy_score(y_test, y_pred_default), 4)
-                auc = round(roc_auc_score(y_test, y_prob), 4)
-                pr = round(average_precision_score(y_test, y_prob), 4)
-
-                skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-                cv = cross_val_score(
-                    XGBClassifier(**xgb_params, verbosity=0),
-                    X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1
-                )
-
-                model_results.append({
-                    "name": "XGBoost (Calibrated)",
-                    "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                    "cost": int(cost), "threshold": threshold,
-                    "confusion_matrix": cm,
-                    "cv_scores": [round(float(s), 4) for s in cv],
-                    "cv_mean": round(float(cv.mean()), 4),
-                    "cv_std": round(float(cv.std()), 4),
-                    "_model_obj": xgb_model,
-                })
-                print(f"[pipeline] [OK] XGBoost (Calibrated): AUC={auc}, Cost={int(cost)}")
-            except Exception as e:
-                print(f"[pipeline] [FAIL] XGBoost failed: {e}")
-                traceback.print_exc()
-
-        # ==============================================
-        # MODEL 5: LightGBM (notebook Section 14)
-        # trains on UNSCALED data, retrains on full train after early stopping
-        # ==============================================
-        lgb_model = None
-        if HAS_LGB:
-            progress(60, "Training LightGBM")
-            try:
-                lgb_params = dict(
-                    n_estimators=400, learning_rate=0.05,
-                    num_leaves=31, max_depth=-1,
-                    subsample=0.8, colsample_bytree=0.8,
-                    scale_pos_weight=scale_pos_weight,
-                    random_state=42, n_jobs=-1, verbose=-1
-                )
-
-                # Early stopping split
-                X_train_lgb, X_val_lgb, y_train_lgb, y_val_lgb = train_test_split(
-                    X_train_np, y_train, test_size=0.2,
-                    stratify=y_train, random_state=42
-                )
-                lgb_temp = LGBMClassifier(**lgb_params)
-                lgb_temp.fit(X_train_lgb, y_train_lgb,
-                             eval_set=[(X_val_lgb, y_val_lgb)],
-                             eval_metric='auc')
-
-                # Retrain on full train data (critical -- matches notebook)
-                lgb_model = LGBMClassifier(**lgb_params)
-                lgb_model.fit(X_train_np, y_train)
-
-                y_prob = lgb_model.predict_proba(X_test_np)[:, 1]
-                threshold, cost = find_best_threshold(y_test, y_prob)
-
-                y_pred_default = lgb_model.predict(X_test_np)
-                cm = confusion_matrix(y_test, y_pred_default).tolist()
-                acc = round(accuracy_score(y_test, y_pred_default), 4)
-                auc = round(roc_auc_score(y_test, y_prob), 4)
-                pr = round(average_precision_score(y_test, y_prob), 4)
-
-                skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-                cv = cross_val_score(LGBMClassifier(**lgb_params),
-                                     X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1)
-
-                model_results.append({
-                    "name": "LightGBM",
-                    "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                    "cost": int(cost), "threshold": threshold,
-                    "confusion_matrix": cm,
-                    "cv_scores": [round(float(s), 4) for s in cv],
-                    "cv_mean": round(float(cv.mean()), 4),
-                    "cv_std": round(float(cv.std()), 4),
-                    "_model_obj": lgb_model,
-                })
-                print(f"[pipeline] [OK] LightGBM: AUC={auc}, Cost={int(cost)}")
-            except Exception as e:
-                print(f"[pipeline] [FAIL] LightGBM failed: {e}")
-                traceback.print_exc()
-
-        # ==============================================
-        # MODEL 6: CatBoost (notebook Section 15)
-        # Uses raw categorical features, NOT one-hot encoded
-        # ==============================================
-        if HAS_CAT:
-            progress(66, "Training CatBoost")
-            try:
-                # CatBoost uses raw categorical data (df_feat, not encoded)
-                df_for_cat = df_feat.copy()
-                X_cat = df_for_cat.drop("Churn", axis=1)
-                y_cat = df_for_cat["Churn"].values
-
-                cat_feature_cols = X_cat.select_dtypes(include=["object", "category"]).columns.tolist()
-                for col in cat_feature_cols:
-                    X_cat[col] = X_cat[col].astype(str).fillna("Missing")
-
-                # Use same train/test indices
-                X_cat_train = X_cat.iloc[X_train.index] if hasattr(X_train, 'index') else X_cat.iloc[:len(X_train_np)]
-                X_cat_test = X_cat.iloc[X_test.index] if hasattr(X_test, 'index') else X_cat.iloc[len(X_train_np):]
-
-                # Reindex to match the original df's indices
-                X_cat_train = X_cat.loc[X_train.index]
-                X_cat_test = X_cat.loc[X_test.index]
-
-                class_weights = [1, scale_pos_weight]
-
-                import torch
-                gpu_available = torch.cuda.is_available()
-
-                cat_params = dict(
-                    iterations=500, learning_rate=0.05, depth=6,
-                    l2_leaf_reg=3, eval_metric="AUC",
-                    task_type="GPU" if gpu_available else "CPU",
-                    class_weights=class_weights,
-                    random_seed=42, verbose=False
-                )
-
-                # Early stopping split
-                X_cat_train_final, X_cat_val, y_cat_train_final, y_cat_val = train_test_split(
-                    X_cat_train, y_train, test_size=0.2,
-                    stratify=y_train, random_state=42
-                )
-
-                cat_model = CatBoostClassifier(**cat_params)
-                cat_model.fit(
-                    X_cat_train_final, y_cat_train_final,
-                    cat_features=cat_feature_cols,
-                    eval_set=(X_cat_val, y_cat_val),
-                    early_stopping_rounds=50,
-                    verbose=False
-                )
-
-                y_prob = cat_model.predict_proba(X_cat_test)[:, 1]
-                threshold, cost = find_best_threshold(y_test, y_prob)
-
-                y_pred_default = cat_model.predict(X_cat_test)
-                # CatBoost predict returns strings or ints depending on version
-                y_pred_default = np.array(y_pred_default).astype(int)
-                cm = confusion_matrix(y_test, y_pred_default).tolist()
-                acc = round(accuracy_score(y_test, y_pred_default), 4)
-                auc = round(roc_auc_score(y_test, y_prob), 4)
-                pr = round(average_precision_score(y_test, y_prob), 4)
-
-                # CatBoost CV (manual, like notebook)
-                cat_auc_scores = []
-                skf_cat = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-                for train_idx, val_idx in skf_cat.split(X_cat, y):
-                    X_fold_train = X_cat.iloc[train_idx]
-                    X_fold_val = X_cat.iloc[val_idx]
-                    y_fold_train = y[train_idx]
-                    y_fold_val = y[val_idx]
-                    m = CatBoostClassifier(**cat_params)
-                    m.fit(X_fold_train, y_fold_train, cat_features=cat_feature_cols, verbose=False)
-                    preds = m.predict_proba(X_fold_val)[:, 1]
-                    cat_auc_scores.append(roc_auc_score(y_fold_val, preds))
-                cv_arr = np.array(cat_auc_scores)
-
-                model_results.append({
-                    "name": "CatBoost",
-                    "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                    "cost": int(cost), "threshold": threshold,
-                    "confusion_matrix": cm,
-                    "cv_scores": [round(float(s), 4) for s in cv_arr],
-                    "cv_mean": round(float(cv_arr.mean()), 4),
-                    "cv_std": round(float(cv_arr.std()), 4),
-                    "_model_obj": cat_model,
-                })
-                print(f"[pipeline] [OK] CatBoost: AUC={auc}, Cost={int(cost)}")
-            except Exception as e:
-                print(f"[pipeline] [FAIL] CatBoost failed: {e}")
-                traceback.print_exc()
-
-        # ==============================================
-        # MODEL 7: Stacking (notebook Section 16)
-        # Uses RF + LR(pipeline) + LGB as base estimators
-        # ==============================================
-        progress(72, "Training Stacked Model")
-        try:
+        def make_stack():
             estimators = [
-                ('rf', rf_weighted if 'rf_weighted' in dir() else RandomForestClassifier(
-                    n_estimators=800, class_weight='balanced', random_state=42, n_jobs=-1)),
-                ('log', make_pipeline(
-                    StandardScaler(),
-                    LogisticRegression(class_weight='balanced', max_iter=1000)
-                )),
+                ("rf", RandomForestClassifier(
+                    n_estimators=800, min_samples_split=5, min_samples_leaf=2,
+                    max_features="sqrt", class_weight="balanced",
+                    random_state=RANDOM_STATE, n_jobs=-1)),
+                ("log", Pipeline([
+                    ("scaler", StandardScaler()),
+                    ("model", LogisticRegression(class_weight="balanced", max_iter=1000)),
+                ])),
             ]
-            if lgb_model is not None:
-                estimators.append(('lgb', lgb_model))
-
-            stack_model = StackingClassifier(
+            if HAS_LGB:
+                estimators.append(("lgb", LGBMClassifier(
+                    n_estimators=400, learning_rate=0.05, num_leaves=31,
+                    scale_pos_weight=scale_pos_weight,
+                    random_state=RANDOM_STATE, n_jobs=-1, verbose=-1)))
+            return build_model_pipeline(StackingClassifier(
                 estimators=estimators,
-                final_estimator=LogisticRegression(class_weight='balanced', max_iter=1000),
-                passthrough=False,
-                n_jobs=-1,
-            )
-            stack_model.fit(X_train_np, y_train)
-            y_prob = stack_model.predict_proba(X_test_np)[:, 1]
-            threshold, cost = find_best_threshold(y_test, y_prob)
+                final_estimator=LogisticRegression(class_weight="balanced", max_iter=1000),
+                passthrough=False, n_jobs=-1))
 
-            y_pred_default = stack_model.predict(X_test_np)
-            cm = confusion_matrix(y_test, y_pred_default).tolist()
-            acc = round(accuracy_score(y_test, y_pred_default), 4)
-            auc = round(roc_auc_score(y_test, y_prob), 4)
-            pr = round(average_precision_score(y_test, y_prob), 4)
+        zoo = [
+            ("Logistic Regression", 38, make_lr),
+            ("Decision Tree", 44, make_dt),
+            ("Random Forest", 50, make_rf),
+        ]
+        if HAS_XGB:
+            zoo.append(("XGBoost (Calibrated)", 58, make_xgb))
+        if HAS_LGB:
+            zoo.append(("LightGBM", 66, make_lgb))
+        if HAS_CAT:
+            zoo.append(("CatBoost", 72, make_cat))
+        zoo.append(("Stacked Model", 80, make_stack))
 
-            skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-            cv = cross_val_score(stack_model, X_train_np, y_train, cv=skf, scoring="roc_auc", n_jobs=-1)
-
-            model_results.append({
-                "name": "Stacked Model",
-                "accuracy": acc, "roc_auc": auc, "pr_auc": pr,
-                "cost": int(cost), "threshold": threshold,
-                "confusion_matrix": cm,
-                "cv_scores": [round(float(s), 4) for s in cv],
-                "cv_mean": round(float(cv.mean()), 4),
-                "cv_std": round(float(cv.std()), 4),
-                "_model_obj": stack_model,
-            })
-            print(f"[pipeline] [OK] Stacked Model: AUC={auc}, Cost={int(cost)}")
-        except Exception as e:
-            print(f"[pipeline] [FAIL] Stacked Model failed: {e}")
-            traceback.print_exc()
+        # ── Validate + fit each model ────────────────────────────────────────
+        model_results = []
+        for name, pct, builder in zoo:
+            progress(pct, f"Training {name} (out-of-fold validation)")
+            try:
+                res = _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
+                                 cost_fn, cost_fp)
+                model_results.append(res)
+                logger.info("[OK] %s: cv_auc=%s, val_cost=%s, val_threshold=%s",
+                            name, res["cv_mean"], res["cost"], res["threshold"])
+            except Exception as e:
+                logger.exception("[FAIL] %s failed: %s", name, e)
 
         if not model_results:
             raise RuntimeError("All models failed to train")
 
-        # -- Tuned Logistic will be added later (needs Optuna fix) --
-
-        progress(80, "Selecting best model")
+        # ── Selection: lowest OUT-OF-FOLD cost. Test set untouched so far. ──
+        progress(84, "Selecting best model on validation cost")
         best = min(model_results, key=lambda m: m["cost"])
         best_model_obj = best["_model_obj"]
         best_threshold = best["threshold"]
+        best_oof = np.asarray(best["_oof_probs"], dtype=float)
 
         sorted_by_cost = sorted(model_results, key=lambda m: m["cost"])
-
         for m in model_results:
             if m["name"] == best["name"]:
                 m["status"] = "Selected"
@@ -805,84 +618,144 @@ def run_pipeline(
             else:
                 m["status"] = "Evaluated"
 
+        # ── Final evaluation: the ONE look at the test set with locked choices
+        probs_test_best = best.pop("_probs_test")
+        y_pred_final = (probs_test_best >= best_threshold).astype(int)
+        y_pred_default = (probs_test_best >= 0.5).astype(int)
+        test_cost = business_cost(y_test, y_pred_final, cost_fn, cost_fp)
+        test_cost_default = business_cost(y_test, y_pred_default, cost_fn, cost_fp)
+
+        results["final_evaluation"] = {
+            "model": best["name"],
+            "threshold": best_threshold,
+            "test_cost_at_threshold": test_cost,
+            "test_cost_at_default_0_5": test_cost_default,
+            "test_savings_vs_default": test_cost_default - test_cost,
+            "test_roc_auc": round(float(roc_auc_score(y_test, probs_test_best)), 4),
+            "test_confusion_matrix_at_threshold": confusion_matrix(y_test, y_pred_final).tolist(),
+            "protocol": (
+                "Model and threshold were selected on out-of-fold validation "
+                "predictions over the training split only; the test set was "
+                "evaluated once, here."
+            ),
+        }
+        logger.info("FINAL: %s @ t=%s -> test_cost=%s (default-0.5 cost %s)",
+                    best["name"], best_threshold, test_cost, test_cost_default)
+
         for m in model_results:
             m.pop("_model_obj", None)
+            m.pop("_probs_test", None)
+            m.pop("_oof_probs", None)
 
         results["models"] = model_results
         results["best_model"] = best["name"]
         results["best_threshold"] = best_threshold
-        results["cost_fn"] = COST_FN
-        results["cost_fp"] = COST_FP
+        results["cost_fn"] = cost_fn
+        results["cost_fp"] = cost_fp
 
-        progress(85, "Computing SHAP global importances")
+        # ── Real cost-vs-threshold curve from the selected model's out-of-fold
+        #    validation predictions. Persist (y_true, probs) so the
+        #    /threshold-curve endpoint can recompute for any FN/FP cost the user
+        #    enters, WITHOUT retraining. This replaces the frontend's fabricated
+        #    sigmoid interpolation (AUDIT.md §4.B).
+        results["validation_oof"] = {
+            "model": best["name"],
+            "y_true": [int(v) for v in y_train],
+            "probs": [round(float(p), 6) for p in best_oof],
+            "note": "Out-of-fold predictions over the training split (leakage-free).",
+        }
+        curve = cost_threshold_curve(y_train, best_oof, cost_fn, cost_fp)
+        optimal_row = min(curve, key=lambda r: r["cost"])
+        results["threshold_curve"] = {
+            "source": "validation_oof",
+            "model": best["name"],
+            "cost_fn": cost_fn,
+            "cost_fp": cost_fp,
+            "curve": curve,
+            "optimal": optimal_row,
+            "locked_threshold": best_threshold,
+        }
+        results["cost_sensitivity"] = {
+            "source": "validation_oof",
+            "model": best["name"],
+            "cost_fp": cost_fp,
+            "points": cost_sensitivity_curve(y_train, best_oof, cost_fp),
+        }
 
-        inner_model = best_model_obj
-        X_shap = X_test_np
-
-        results["shap_global"] = compute_shap_global(inner_model, X_shap, feature_names)
-
-        progress(92, "Computing per-customer SHAP values")
-
+        # ── SHAP (global + per-customer), fixed label-based attribution ─────
+        progress(88, "Computing SHAP values")
+        feature_names = feature_names_of(best_model_obj)
         try:
-            explainer = _get_explainer(inner_model, X_shap)
-            shap_vals = explainer.shap_values(X_shap)
+            shap_vals, shap_names = _shap_matrix(best_model_obj, X_test, max_rows=100)
+            mean_abs = np.abs(shap_vals).mean(axis=0)
+            results["shap_global"] = [
+                {"feature": f, "importance": round(float(v), 6)}
+                for f, v in sorted(zip(shap_names, mean_abs), key=lambda x: -x[1])
+            ]
 
-            if isinstance(shap_vals, list):
-                shap_vals = shap_vals[1]
-
-            y_prob_all = best_model_obj.predict_proba(X_test_np)[:, 1]
-            df_clean_reset = df_clean.reset_index(drop=True)
+            progress(93, "Computing per-customer SHAP values")
             customer_shap = []
-
-            for i in range(min(len(X_test_np), 100)):
-                original_idx = idx_test[i]
-                row = (
-                    df_clean_reset.iloc[original_idx].to_dict()
-                    if original_idx < len(df_clean_reset)
-                    else {}
-                )
-
-                prob = float(y_prob_all[i])
-                pred = int(prob >= best_threshold)
-
-                sv = {
-                    feature_names[j]: round(float(shap_vals[i, j]), 6)
-                    for j in range(len(feature_names))
-                }
-
+            n_rows = shap_vals.shape[0]
+            for i in range(n_rows):
+                label = X_test.index[i]                     # original index LABEL
+                row = df_clean.loc[label].to_dict()          # label-based lookup (§4.E)
+                prob = float(probs_test_best[i])
                 customer_shap.append({
                     "index": i,
                     "customer": {
-                        k: (
-                            int(v) if isinstance(v, np.integer)
+                        k: (int(v) if isinstance(v, (np.integer, bool))
                             else float(v) if isinstance(v, np.floating)
-                            else v
-                        )
+                            else v)
                         for k, v in row.items()
                     },
                     "probability": round(prob, 4),
-                    "prediction": pred,
-                    "risk_level": "HIGH RISK" if prob >= best_threshold else "LOW RISK",
+                    "prediction": int(prob >= best_threshold),
+                    "risk_level": risk_level(prob, best_threshold),
                     "threshold_used": best_threshold,
-                    "shap_values": sv,
+                    "shap_values": {
+                        shap_names[j]: round(float(shap_vals[i, j]), 6)
+                        for j in range(len(shap_names))
+                    },
                 })
-
             results["customer_shap"] = customer_shap
-
         except Exception as e:
-            print(f"[SHAP per-customer] failed: {e}")
+            logger.exception("SHAP computation failed: %s", e)
+            results["shap_global"] = []
             results["customer_shap"] = []
 
         progress(97, "Finalising results")
-
         results["feature_names"] = feature_names
         results["dataset_info"] = {
             "total_rows": int(len(df)),
-            "train_size": int(len(X_train_np)),
-            "test_size": int(len(X_test_np)),
+            "train_size": int(len(X_train)),
+            "test_size": int(len(X_test)),
             "n_features": int(len(feature_names)),
-            "churn_rate": round(float(y.mean()), 4),
+            "churn_rate": round(float(y_all.mean()), 4),
         }
+
+        # ── Serialize the winning pipeline as ONE artifact with metadata ────
+        if artifact_path:
+            progress(99, "Saving model artifact")
+            prep = Pipeline(best_model_obj.steps[:-1])
+            background = prep.transform(X_train.iloc[:100])
+            if not isinstance(background, np.ndarray):
+                background = None  # CatBoost pipeline: no numeric background
+            else:
+                background = background.astype(float)
+            metadata = {
+                "model_name": best["name"],
+                "threshold": best_threshold,
+                "feature_names": feature_names,
+                "trained_at": datetime.now(timezone.utc).isoformat(),
+                "git_commit": _git_commit(),
+                "sklearn_version": sklearn.__version__,
+                "cost_fn": cost_fn,
+                "cost_fp": cost_fp,
+                "final_evaluation": results["final_evaluation"],
+                "shap_background": background,
+            }
+            save_artifact(artifact_path, best_model_obj, best_threshold, metadata)
+            logger.info("Artifact saved -> %s", artifact_path)
 
         progress(100, "Pipeline complete")
         return results

@@ -1,16 +1,19 @@
 /**
- * BusinessAnalysis.tsx — wired to real pipeline results
- * Replaces: import { THRESHOLD_DATA } from "@/data/ModelMetric"
+ * BusinessAnalysis.tsx — real cost curve, real savings.
  *
- * Real source: results.models (cost, confusion_matrix, threshold, cost_fn, cost_fp)
- * The savings animation and cost cards now use REAL numbers from the pipeline.
+ * The cost-vs-threshold curve and every rupee figure on this page come from the
+ * backend, which evaluates exact confusion matrices over the selected model's
+ * out-of-fold validation predictions at the FN/FP costs configured in Settings.
+ *
+ * This page used to synthesise its curve client-side from a single confusion
+ * matrix (sigmoid ramp). See AUDIT.md §4.B and tests/test_threshold_curve.py.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { ChartCard } from "@/components/DashboardCards";
 import { usePipelineResults } from "@/hooks/usePipelineResults";
+import { useThresholdCurve } from "@/hooks/useThresholdCurve";
 import { usePipelineStore } from "@/stores/pipelineStore";
-import { ModelMetric } from "@/types/api";
 import {
   AreaChart, Area, XAxis, YAxis,
   Tooltip, ResponsiveContainer,
@@ -24,28 +27,6 @@ function NoData() {
       Run the pipeline to see business analysis
     </div>
   );
-}
-
-/** Rebuild cost curve from real confusion matrix data */
-function buildCostCurve(cm: number[][], optimalThreshold: number, costFn: number, costFp: number) {
-  const [[tn, fp], [fn, tp]] = cm;
-  const positives = fn + tp;
-
-  return Array.from({ length: 33 }, (_, i) => {
-    const t = +(0.05 + i * 0.025).toFixed(3);
-    const delta = t - optimalThreshold;
-    const recall = Math.max(0.01, Math.min(0.99,
-      (tp / positives) * Math.exp(-3 * Math.max(0, delta)) * (1 + 0.5 * Math.min(0, delta))
-    ));
-    const precision = Math.max(0.01, Math.min(0.99,
-      (tp / (tp + fp)) * (1 + 1.5 * Math.max(0, delta)) * Math.exp(1.5 * Math.min(0, delta))
-    ));
-    const predPos = Math.round(recall * positives);
-    const estFP = Math.round(predPos * (1 - Math.min(0.99, precision)));
-    const estFN = positives - predPos;
-    const cost = estFN * costFn + estFP * costFp;
-    return { threshold: t, cost: Math.round(cost), costK: +(cost / 1000).toFixed(1) };
-  });
 }
 
 /** Animated counter hook */
@@ -68,39 +49,37 @@ function useAnimatedCount(target: number, duration = 60) {
 export default function BusinessAnalysis() {
   const { currency } = usePipelineStore();
   const { results, noData, isRunning } = usePipelineResults();
+  const { data: curveData, loading, error } = useThresholdCurve();
 
-  const { bestModel, costCurve, defaultCost, optimalCost, savings } = useMemo(() => {
-    if (!results) return { bestModel: null, costCurve: [], defaultCost: 0, optimalCost: 0, savings: 0 };
-
-    const best = results.models.find((m) => m.status === "Selected") ?? results.models[0];
-    if (!best?.confusion_matrix) return { bestModel: null, costCurve: [], defaultCost: 0, optimalCost: 0, savings: 0 };
-    const curve = buildCostCurve(
-      best.confusion_matrix,
-      best.threshold ?? results.best_threshold ?? 0.13,
-      results.cost_fn ?? 10000,
-      results.cost_fp ?? 500
-    );
-
-    const defaultRow = curve.find((d) => Math.abs(d.threshold - 0.50) < 0.015) ?? curve[curve.length - 1];
-    const optRow = curve.reduce((a, b) => (a.cost < b.cost ? a : b));
-
-    return {
-      bestModel: best,
-      costCurve: curve,
-      defaultCost: defaultRow.cost,
-      optimalCost: optRow.cost,
-      savings: defaultRow.cost - optRow.cost,
-    };
-  }, [results]);
+  const defaultRow = curveData?.curve.find((d) => Math.abs(d.threshold - 0.5) < 1e-9);
+  const optimal = curveData?.optimal;
+  const defaultCost = defaultRow?.cost ?? 0;
+  const optimalCost = optimal?.cost ?? 0;
+  const savings = defaultCost - optimalCost;
 
   const animatedSavings = useAnimatedCount(savings);
-  const optimalThreshold = bestModel?.threshold ?? results?.best_threshold ?? 0.13;
 
   if (noData) return <NoData />;
   if (isRunning) return <div className="text-muted-foreground p-4">Pipeline is running…</div>;
-  if (!results || !bestModel) return null;
+  if (!results) return null;
 
-  const { cost_fn = 10000, cost_fp = 500 } = results ?? {};
+  if (error) {
+    return (
+      <div className="glass-card p-5 border-l-2 border-l-destructive">
+        <h3 className="font-semibold text-foreground mb-1">Cost analysis unavailable</h3>
+        <p className="text-sm text-muted-foreground">{error}</p>
+      </div>
+    );
+  }
+  if (loading || !curveData || !optimal) {
+    return <div className="text-muted-foreground p-4">Loading cost analysis…</div>;
+  }
+
+  const { cost_fn, cost_fp, model, locked_threshold } = curveData;
+  const costCurve = curveData.curve.map((p) => ({
+    ...p,
+    costK: +(p.cost / 1000).toFixed(1),
+  }));
   const savingsPct = defaultCost > 0 ? ((savings / defaultCost) * 100).toFixed(1) : "0";
 
   return (
@@ -109,7 +88,7 @@ export default function BusinessAnalysis() {
       {/* Cost vs Threshold */}
       <ChartCard
         title="Cost vs Threshold"
-        subtitle={`Optimal threshold = ${optimalThreshold} | Model: ${bestModel.name}`}
+        subtitle={`Cost-optimal threshold = ${optimal.threshold} | Model: ${model} | Validation (out-of-fold) data`}
       >
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={costCurve}>
@@ -123,15 +102,23 @@ export default function BusinessAnalysis() {
               label={{ value: `Cost (K ${currency})`, angle: -90, position: "insideLeft", fontSize: 10 }}
             />
             <Tooltip
-              formatter={(v: number) => [`${currency}${(v * 1000).toLocaleString()}`, "Cost"]}
+              formatter={(v: number) => [`${currency}${Math.round(v * 1000).toLocaleString()}`, "Cost"]}
               labelFormatter={(l) => `Threshold: ${l}`}
             />
             <ReferenceLine
-              x={optimalThreshold}
+              x={optimal.threshold}
               stroke={CHART_COLORS[3]}
               strokeDasharray="5 5"
               label={{ value: "Optimal", fill: "hsl(var(--destructive))", fontSize: 10 }}
             />
+            {locked_threshold != null && (
+              <ReferenceLine
+                x={locked_threshold}
+                stroke={CHART_COLORS[2]}
+                strokeDasharray="2 4"
+                label={{ value: "Deployed", fill: CHART_COLORS[2], fontSize: 10 }}
+              />
+            )}
             <Area
               type="monotone"
               dataKey="costK"
@@ -153,7 +140,7 @@ export default function BusinessAnalysis() {
         </div>
         <div className="metric-card border-l-2 border-l-success">
           <span className="text-xs text-muted-foreground uppercase">
-            Optimal (t={optimalThreshold})
+            Optimal (t={optimal.threshold})
           </span>
           <span className="text-2xl font-bold text-foreground">
             {currency}{optimalCost.toLocaleString()}
@@ -197,33 +184,25 @@ export default function BusinessAnalysis() {
         </div>
       </ChartCard>
 
-      {/* Confusion matrix at optimal threshold */}
-      <ChartCard title={`Confusion Matrix at threshold ${optimalThreshold} (${bestModel.name})`}>
-        <div className="grid grid-cols-2 gap-2 max-w-xs mx-auto">
-          <div className="text-center" />
-          <div className="grid grid-cols-2 gap-2">
-            <p className="text-xs text-center text-muted-foreground">Pred 0</p>
-            <p className="text-xs text-center text-muted-foreground">Pred 1</p>
+      {/* Confusion matrix at the cost-optimal threshold — measured, not assumed */}
+      <ChartCard title={`Validation Confusion Matrix at threshold ${optimal.threshold} (${model})`}>
+        <div className="grid grid-cols-2 gap-2 max-w-md mx-auto text-center">
+          <div className="bg-success/10 rounded-lg p-4">
+            <p className="text-xs text-muted-foreground">True Negative</p>
+            <p className="text-lg font-bold text-success">{optimal.tn.toLocaleString()}</p>
           </div>
-          {bestModel.confusion_matrix.map((row, ri) => (
-            <div key={ri} className="contents">
-              <p className="text-xs text-muted-foreground self-center">Act {ri}</p>
-              <div className="grid grid-cols-2 gap-2">
-                {row.map((cell, ci) => (
-                  <div
-                    key={ci}
-                    className={`rounded-lg p-3 text-center font-bold text-lg ${
-                      ri === ci
-                        ? "bg-success/20 text-success"
-                        : "bg-destructive/20 text-destructive"
-                    }`}
-                  >
-                    {cell.toLocaleString()}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+          <div className="bg-destructive/10 rounded-lg p-4">
+            <p className="text-xs text-muted-foreground">False Positive</p>
+            <p className="text-lg font-bold text-destructive">{optimal.fp.toLocaleString()}</p>
+          </div>
+          <div className="bg-destructive/10 rounded-lg p-4">
+            <p className="text-xs text-muted-foreground">False Negative</p>
+            <p className="text-lg font-bold text-destructive">{optimal.fn.toLocaleString()}</p>
+          </div>
+          <div className="bg-success/10 rounded-lg p-4">
+            <p className="text-xs text-muted-foreground">True Positive</p>
+            <p className="text-lg font-bold text-success">{optimal.tp.toLocaleString()}</p>
+          </div>
         </div>
       </ChartCard>
 
@@ -231,7 +210,7 @@ export default function BusinessAnalysis() {
       <div className="glass-card p-5 border-l-2 border-l-primary">
         <h3 className="font-semibold text-foreground mb-2">Business Interpretation</h3>
         <p className="text-sm text-muted-foreground">
-          At threshold {optimalThreshold}, the {bestModel.name} model minimises total cost to{" "}
+          At threshold {optimal.threshold}, the {model} model minimises total validation cost to{" "}
           <strong className="text-foreground">
             {currency}{optimalCost.toLocaleString()}
           </strong>
@@ -239,12 +218,15 @@ export default function BusinessAnalysis() {
           <strong className="text-foreground">
             {currency}{defaultCost.toLocaleString()}
           </strong>{" "}
-          at the default 0.50 threshold.
-          For every {currency}{cost_fp.toLocaleString()} spent on a false alarm,
-          we avoid a {currency}{cost_fn.toLocaleString()} missed churner.
-          The net saving of{" "}
+          at the default 0.50 threshold — a net saving of{" "}
           <strong className="text-success">{currency}{savings.toLocaleString()}</strong>{" "}
-          represents a <strong className="text-foreground">{savingsPct}% cost reduction</strong>.
+          (<strong className="text-foreground">{savingsPct}% cost reduction</strong>).
+          It catches {optimal.tp} churners and misses {optimal.fn}, at the price of{" "}
+          {optimal.fp} unnecessary offers.
+        </p>
+        <p className="text-xs text-muted-foreground mt-2">
+          Figures are measured on out-of-fold validation predictions — the same data used to
+          choose the threshold. Held-out test performance is reported once, in the final summary.
         </p>
       </div>
 
