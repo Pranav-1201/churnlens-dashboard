@@ -13,6 +13,7 @@ Correctness contract (Phase 1 fix pass, see AUDIT.md):
   * Risk bands derive from the actual decision threshold (§4.F).
 """
 
+import logging
 import os
 import pickle
 import subprocess
@@ -34,7 +35,6 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier
 import sklearn
-import shap
 
 from features import (
     build_catboost_pipeline,
@@ -44,27 +44,32 @@ from features import (
     risk_level,
 )
 
+# shap is imported lazily inside the explainer helpers (_get_explainer) so that
+# importing this module — and therefore starting the FastAPI app — never requires
+# shap to be installed. SHAP only loads when values are actually computed.
+logger = logging.getLogger(__name__)
+
 # Optional boosting imports — gracefully degrade if not installed
 try:
     from xgboost import XGBClassifier
     HAS_XGB = True
 except ImportError:
     HAS_XGB = False
-    print("[WARNING] xgboost not installed -- XGBoost model will be skipped")
+    logger.warning("xgboost not installed -- XGBoost model will be skipped")
 
 try:
     from lightgbm import LGBMClassifier
     HAS_LGB = True
 except ImportError:
     HAS_LGB = False
-    print("[WARNING] lightgbm not installed -- LightGBM model will be skipped")
+    logger.warning("lightgbm not installed -- LightGBM model will be skipped")
 
 try:
     from catboost import CatBoostClassifier, Pool
     HAS_CAT = True
 except ImportError:
     HAS_CAT = False
-    print("[WARNING] catboost not installed -- CatBoost model will be skipped")
+    logger.warning("catboost not installed -- CatBoost model will be skipped")
 
 warnings.filterwarnings("ignore")
 
@@ -311,6 +316,8 @@ def _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
 def _get_explainer(model, X_background):
     """Pick the correct SHAP explainer for the FINAL estimator of a pipeline
     (inputs are already encoded)."""
+    import shap  # lazy: only imported when SHAP is actually computed
+
     if isinstance(model, LogisticRegression):
         return shap.LinearExplainer(model, X_background)
     if isinstance(model, (RandomForestClassifier, DecisionTreeClassifier)):
@@ -587,11 +594,10 @@ def run_pipeline(
                 res = _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
                                  cost_fn, cost_fp)
                 model_results.append(res)
-                print(f"[pipeline] [OK] {name}: cv_auc={res['cv_mean']}, "
-                      f"val_cost={res['cost']}, val_threshold={res['threshold']}")
+                logger.info("[OK] %s: cv_auc=%s, val_cost=%s, val_threshold=%s",
+                            name, res["cv_mean"], res["cost"], res["threshold"])
             except Exception as e:
-                print(f"[pipeline] [FAIL] {name} failed: {e}")
-                traceback.print_exc()
+                logger.exception("[FAIL] %s failed: %s", name, e)
 
         if not model_results:
             raise RuntimeError("All models failed to train")
@@ -633,8 +639,8 @@ def run_pipeline(
                 "evaluated once, here."
             ),
         }
-        print(f"[pipeline] FINAL: {best['name']} @ t={best_threshold} -> "
-              f"test_cost={test_cost} (default-0.5 cost {test_cost_default})")
+        logger.info("FINAL: %s @ t=%s -> test_cost=%s (default-0.5 cost %s)",
+                    best["name"], best_threshold, test_cost, test_cost_default)
 
         for m in model_results:
             m.pop("_model_obj", None)
@@ -713,8 +719,7 @@ def run_pipeline(
                 })
             results["customer_shap"] = customer_shap
         except Exception as e:
-            print(f"[SHAP] failed: {e}")
-            traceback.print_exc()
+            logger.exception("SHAP computation failed: %s", e)
             results["shap_global"] = []
             results["customer_shap"] = []
 
@@ -750,7 +755,7 @@ def run_pipeline(
                 "shap_background": background,
             }
             save_artifact(artifact_path, best_model_obj, best_threshold, metadata)
-            print(f"[pipeline] Artifact saved -> {artifact_path}")
+            logger.info("Artifact saved -> %s", artifact_path)
 
         progress(100, "Pipeline complete")
         return results

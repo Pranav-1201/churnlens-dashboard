@@ -13,6 +13,7 @@ Features:
 
 import io
 import json
+import logging
 import os
 import threading
 import traceback
@@ -29,7 +30,13 @@ from fastapi.responses import JSONResponse
 import job_store
 from pipeline import run_pipeline, cost_threshold_curve, cost_sensitivity_curve
 from predictor import predict as run_predict
-from schemas import CustomerInput, PredictionResponse
+from schemas import CustomerInput, PredictionResponse, validate_training_frame
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
+logger = logging.getLogger("churnlens.api")
 
 # ──────────────────────────────────────────────
 # App setup
@@ -47,9 +54,6 @@ app.add_middleware(
 # Paths
 DEMO_CSV_PATH = "D:/MLProject/data/telco_churn.csv"
 
-print("DEBUG PATH:", DEMO_CSV_PATH)
-print("FILE EXISTS:", os.path.exists(DEMO_CSV_PATH))
-
 # Cache last pipeline results
 _last_results: dict = {}
 _results_lock = threading.Lock()
@@ -66,7 +70,7 @@ def _persist_last_results(results: dict) -> None:
         with open(_LAST_RUN_PATH, "w", encoding="utf-8") as f:
             json.dump(results, f, default=str)
     except Exception as e:  # persistence is best-effort; never break a run over it
-        print(f"[warm-start] could not persist last run: {e}")
+        logger.warning("warm-start: could not persist last run: %s", e)
 
 
 def _load_last_results() -> None:
@@ -75,10 +79,10 @@ def _load_last_results() -> None:
         if os.path.exists(_LAST_RUN_PATH):
             with open(_LAST_RUN_PATH, "r", encoding="utf-8") as f:
                 _last_results = json.load(f)
-            print(f"[warm-start] loaded previous run from {_LAST_RUN_PATH} "
-                  f"(model={_last_results.get('best_model')})")
+            logger.info("warm-start: loaded previous run from %s (model=%s)",
+                        _LAST_RUN_PATH, _last_results.get("best_model"))
     except Exception as e:
-        print(f"[warm-start] could not load previous run: {e}")
+        logger.warning("warm-start: could not load previous run: %s", e)
 
 
 _load_last_results()
@@ -102,7 +106,7 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
     except Exception as e:
         tb = traceback.format_exc()
         job_store.mark_failed(job_id, str(e))
-        print(f"[pipeline] Job {job_id} failed:\n{tb}")
+        logger.error("Job %s failed:\n%s", job_id, tb)
 
 
 # ──────────────────────────────────────────────
@@ -150,11 +154,11 @@ async def run_pipeline_endpoint(
     else:
         raise HTTPException(400, "Provide file or use_demo=true")
 
-    # Required columns
-    required = {"tenure", "MonthlyCharges", "TotalCharges", "Churn"}
-    missing = required - set(df.columns)
-    if missing:
-        raise HTTPException(422, f"Missing columns: {missing}")
+    # Schema validation for the uploaded/demo training CSV (Phase 3, item 6)
+    try:
+        validate_training_frame(df)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
 
     job_id = job_store.create_job()
     background_tasks.add_task(_run_pipeline_job, job_id, df)

@@ -6,12 +6,16 @@ so there is deliberately NO encoding logic in this file: the exact transformers 
 were fit at training time run at inference time (fixes AUDIT.md §3.A / brief #8).
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline as SkPipeline
 
 from features import risk_level
 from model_loader import load_artifact
+
+logger = logging.getLogger(__name__)
 
 
 def prepare_batch(df_raw: pd.DataFrame) -> pd.DataFrame:
@@ -71,7 +75,7 @@ def get_shap_values(pipeline, metadata: dict, df_raw: pd.DataFrame):
             vals = vals[:, :, 1]
         return {names[j]: float(vals[0, j]) for j in range(len(names))}
     except Exception as e:
-        print(f"[predictor] SHAP unavailable: {e}")
+        logger.warning("SHAP unavailable: %s", e)
         return None
 
 

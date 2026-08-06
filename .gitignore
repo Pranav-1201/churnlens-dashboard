@@ -19,6 +19,7 @@ catboost_info/
 # models/*.pkl
 
 node_modules/
+dist/
 *.pt
 notebooks/models/
 backend/catboost_info/

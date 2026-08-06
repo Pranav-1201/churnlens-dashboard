@@ -7,8 +7,11 @@ Artifact format (written by pipeline.save_artifact / train.py):
      "metadata": {model_name, feature_names, trained_at, git_commit, ...}}
 """
 
+import logging
 import os
 import pickle
+
+logger = logging.getLogger(__name__)
 
 _cache: dict = {}
 
@@ -48,9 +51,9 @@ def load_artifact():
     _cache["metadata"] = artifact.get("metadata", {})
 
     meta = _cache["metadata"]
-    print(f"[model_loader] Loaded {meta.get('model_name', 'model')} from {path} "
-          f"(threshold={_cache['threshold']}, trained_at={meta.get('trained_at', '?')}, "
-          f"commit={meta.get('git_commit', '?')})")
+    logger.info("Loaded %s from %s (threshold=%s, trained_at=%s, commit=%s)",
+                meta.get("model_name", "model"), path, _cache["threshold"],
+                meta.get("trained_at", "?"), meta.get("git_commit", "?"))
     return _cache["pipeline"], _cache["threshold"], _cache["metadata"]
 
 
