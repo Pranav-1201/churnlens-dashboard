@@ -13,7 +13,7 @@ import os
 
 import pandas as pd
 
-from pipeline import run_pipeline
+from churn_intel.pipeline import run_pipeline
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_DATA = os.path.join(BASE_DIR, "..", "data", "telco_churn.csv")

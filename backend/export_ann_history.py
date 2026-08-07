@@ -20,8 +20,9 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import engineer_features, make_encoder  # noqa: E402
-from pipeline import RANDOM_STATE, clean_data  # noqa: E402
+from churn_intel.config import RANDOM_STATE  # noqa: E402
+from churn_intel.data import clean_data  # noqa: E402
+from churn_intel.features import engineer_features, make_encoder  # noqa: E402
 
 import torch
 import torch.nn as nn

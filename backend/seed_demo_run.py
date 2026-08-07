@@ -23,10 +23,12 @@ from sklearn.metrics import (accuracy_score, average_precision_score,
 from sklearn.model_selection import StratifiedKFold, train_test_split
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from features import build_model_pipeline  # noqa: E402
-from pipeline import (RANDOM_STATE, clean_data, compute_eda_summary,  # noqa: E402
-                      cost_sensitivity_curve, cost_threshold_curve,
-                      derive_costs, find_best_threshold, oof_probabilities)
+from churn_intel.config import RANDOM_STATE  # noqa: E402
+from churn_intel.costs import (cost_sensitivity_curve, cost_threshold_curve,  # noqa: E402
+                               derive_costs, find_best_threshold)
+from churn_intel.data import clean_data, compute_eda_summary  # noqa: E402
+from churn_intel.features import build_model_pipeline  # noqa: E402
+from churn_intel.modeling import oof_probabilities  # noqa: E402
 
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CSV = sys.argv[1] if len(sys.argv) > 1 else os.path.join(BASE, "data", "telco_demo_small.csv")

@@ -27,10 +27,11 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-import job_store
-from pipeline import run_pipeline, cost_threshold_curve, cost_sensitivity_curve
-from predictor import predict as run_predict
-from schemas import CustomerInput, PredictionResponse, validate_training_frame
+from churn_intel import jobs as job_store
+from churn_intel.costs import cost_sensitivity_curve, cost_threshold_curve
+from churn_intel.inference import predict as run_predict
+from churn_intel.pipeline import run_pipeline
+from churn_intel.schemas import CustomerInput, PredictionResponse, validate_training_frame
 
 logging.basicConfig(
     level=logging.INFO,
@@ -115,7 +116,7 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
 @app.get("/health")
 def health():
     try:
-        from model_loader import load_artifact
+        from churn_intel.artifacts import load_artifact
         _, _, meta = load_artifact()
         feature_count = len(meta.get("feature_names", []))
         model_name = meta.get("model_name")
