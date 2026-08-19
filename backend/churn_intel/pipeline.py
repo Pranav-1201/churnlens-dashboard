@@ -27,7 +27,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 from .artifacts import _git_commit, save_artifact
-from .config import RANDOM_STATE
+from .config import N_SPLITS, RANDOM_STATE, TEST_SIZE
 from .costs import (
     business_cost,
     cost_sensitivity_curve,
@@ -79,10 +79,10 @@ def run_pipeline(
 
         progress(20, "Splitting train / test sets")
         X_train, X_test, y_train, y_test = train_test_split(
-            X_all, y_all, test_size=0.2, random_state=RANDOM_STATE, stratify=y_all,
+            X_all, y_all, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y_all,
         )
 
-        skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
+        skf = StratifiedKFold(n_splits=N_SPLITS, shuffle=True, random_state=RANDOM_STATE)
 
         num_negative = int((y_train == 0).sum())
         num_positive = int((y_train == 1).sum())

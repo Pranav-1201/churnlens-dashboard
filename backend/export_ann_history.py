@@ -20,7 +20,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from churn_intel.config import RANDOM_STATE  # noqa: E402
+from churn_intel.config import RANDOM_STATE, TEST_SIZE, VAL_SIZE  # noqa: E402
 from churn_intel.data import clean_data  # noqa: E402
 from churn_intel.features import engineer_features, make_encoder  # noqa: E402
 
@@ -74,9 +74,11 @@ def main():
     Xs = StandardScaler().fit_transform(np.asarray(Xm, dtype=np.float64)).astype(np.float32)
 
     X_tr, X_te, y_tr, y_te = train_test_split(
-        Xs, y, test_size=0.2, random_state=RANDOM_STATE, stratify=y)
+        Xs, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y)
+    # Distinct parameter from TEST_SIZE: this carves a validation slice out of
+    # the training half. Same value today, different meaning.
     X_t, X_v, y_t, y_v = train_test_split(
-        X_tr, y_tr, test_size=0.2, random_state=RANDOM_STATE, stratify=y_tr)
+        X_tr, y_tr, test_size=VAL_SIZE, random_state=RANDOM_STATE, stratify=y_tr)
 
     train_loader = DataLoader(
         TensorDataset(torch.tensor(X_t), torch.tensor(y_t)), batch_size=BATCH, shuffle=True)

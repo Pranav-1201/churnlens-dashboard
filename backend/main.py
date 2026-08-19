@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from churn_intel import jobs as job_store
+from churn_intel.config import DEMO_CSV_PATH
 from churn_intel.costs import cost_sensitivity_curve, cost_threshold_curve
 from churn_intel.inference import predict as run_predict
 from churn_intel.pipeline import run_pipeline
@@ -52,8 +53,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Paths
-DEMO_CSV_PATH = "D:/MLProject/data/telco_churn.csv"
+# Paths: DEMO_CSV_PATH comes from config.yaml, resolved relative to the config
+# file rather than hardcoded to one machine's drive layout.
 
 # Cache last pipeline results
 _last_results: dict = {}

@@ -18,3 +18,7 @@ uvicorn[standard]==0.29.0
 python-multipart==0.0.9
 python-dotenv==1.0.0
 pydantic==2.6.0
+# churn_intel.config reads backend/config.yaml at import, so this is on the app
+# path, not a dev-only extra. It was previously undeclared and imported only
+# because the dev venv happened to carry it.
+pyyaml==6.0.3

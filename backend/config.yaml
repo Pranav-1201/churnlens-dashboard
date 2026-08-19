@@ -1,0 +1,47 @@
+# ChurnLens backend configuration (Phase 3 item 4).
+#
+# Every value here was previously a literal in churn_intel/config.py, or inline
+# in pipeline.py / seed_demo_run.py / export_ann_history.py / main.py. Changing
+# a value changes model training or the published cost curves — see the README's
+# "Cost-Sensitive Learning" section for what the cost assumptions mean.
+#
+# Loaded at import by churn_intel.config. Override this file's location with the
+# CHURN_CONFIG environment variable. A missing file, a missing key, or a
+# wrong-typed value raises ConfigError at import — nothing silently falls back
+# to a default, because a typo that quietly trains against a stale value is
+# exactly the failure this project's audit has been removing.
+
+costs:
+  # Fallback costs — used ONLY when derivation from the dataset is impossible
+  # (see costs.derive_costs). Real runs compute FN/FP from the data via the CLV
+  # formula; these are the original hardcoded guesses, kept as a last resort.
+  cost_fn: 10000
+  cost_fp: 500
+
+  # Cost-derivation assumptions. Kept in one place so a reviewer can challenge
+  # them; these are defensible defaults, not measurements.
+  gross_margin: 0.30           # a missed churner loses margin, not gross revenue
+  retention_discount: 0.20     # a retention offer is ~20% off ...
+  offer_duration_months: 3     #   ... for ~3 months
+
+thresholds:
+  # Grid for the published cost-vs-threshold curve: 0.01..0.99, i.e. 99 points.
+  # NOTE: the grid is rounded to 2 decimals, which assumes a 0.01-resolution
+  # step. A finer step needs that rounding revisited in churn_intel/config.py.
+  grid:
+    start: 0.01
+    stop: 1.00
+    step: 0.01
+  # FN:FP ratios swept by the cost-sensitivity curve.
+  default_cost_ratios: [1, 2, 3, 5, 8, 10, 15, 20, 30, 50, 75, 100]
+
+training:
+  random_state: 42
+  test_size: 0.2    # train/test holdout
+  val_size: 0.2     # train/validation split, used by the ANN export only
+  n_splits: 5       # StratifiedKFold folds for out-of-fold probabilities
+
+paths:
+  # Resolved relative to THIS file's directory, so it works whether the caller
+  # runs from the repo root (pytest) or from backend/ (uvicorn).
+  demo_csv: ../data/telco_churn.csv
