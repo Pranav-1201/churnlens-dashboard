@@ -131,16 +131,21 @@ def test_absent_key_raises_config_error(tmp_path):
         load_config(_write_config(tmp_path, cfg))
 
 
-def test_absent_section_raises_config_error(tmp_path):
+def test_non_mapping_section_raises_config_error(tmp_path):
+    """A wholly ABSENT section would also trip the missing-key check, so it
+    cannot prove the section guard exists. A scalar where a mapping belongs can:
+    without the guard, key lookup on an int raises TypeError, not ConfigError."""
     cfg = _valid_config()
-    del cfg["training"]
+    cfg["training"] = 5
     with pytest.raises(ConfigError):
         load_config(_write_config(tmp_path, cfg))
 
 
 def test_wrong_typed_value_raises_config_error(tmp_path):
+    # A float field on purpose: an integer field like cost_fn is also guarded by
+    # the integer check, which would mask a missing number check.
     cfg = _valid_config()
-    cfg["costs"]["cost_fn"] = "ten thousand"
+    cfg["costs"]["gross_margin"] = "thirty percent"
     with pytest.raises(ConfigError):
         load_config(_write_config(tmp_path, cfg))
 
@@ -187,6 +192,15 @@ def test_demo_csv_resolves_relative_to_the_config_file_not_the_cwd(tmp_path, mon
     path = nested / "config.yaml"
     path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
 
-    monkeypatch.chdir(tmp_path / "data")
+    # The cwd must be somewhere a cwd-relative "../data/telco_churn.csv" would NOT
+    # land on the same file. (A mutation run caught an earlier version that chdir'd
+    # into tmp_path/data, where the buggy and correct resolutions coincide.)
+    elsewhere = tmp_path / "somewhere" / "else"
+    elsewhere.mkdir(parents=True)
+    monkeypatch.chdir(elsewhere)
+
+    expected = (tmp_path / "data" / "telco_churn.csv").resolve()
+    assert (elsewhere / ".." / "data" / "telco_churn.csv").resolve() != expected
+
     resolved = load_config(path)["paths"]["demo_csv"]
-    assert resolved == str((tmp_path / "data" / "telco_churn.csv").resolve())
+    assert resolved == str(expected)
