@@ -1,0 +1,15 @@
+# Dev tooling + research/notebook extras — not on the API import path.
+# torch is used only by backend/export_ann_history.py; matplotlib/seaborn/optuna/
+# jupyter are notebook-only. Compiled to requirements-dev.txt via:
+#   venv/Scripts/python.exe -m piptools compile requirements-dev.in -o requirements-dev.txt
+-c requirements.txt
+
+pytest==9.1.1
+pytest-cov==7.1.0
+pip-tools==7.6.1
+
+torch==2.11.0
+matplotlib==3.10.8
+seaborn==0.13.2
+optuna==4.8.0
+jupyter==1.1.1

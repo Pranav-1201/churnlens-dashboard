@@ -1,25 +1,74 @@
-pandas
-numpy
-scikit-learn
-xgboost
-lightgbm
-catboost
-shap
-torch
-matplotlib
-seaborn
-optuna
-jupyter
-
-pytest
-pytest-cov==7.1.0
-
+# ChurnLens API runtime — everything backend/main.py needs to boot and serve
+# requests (fastapi/uvicorn app + pandas/sklearn/xgboost/lightgbm/catboost/shap
+# for the model zoo and SHAP explanations). Direct deps are pinned in
+# requirements.in; this file is the full resolved closure (direct + transitive),
+# generated offline from the working venv's installed metadata because this
+# sandbox has no PyPI access (see requirements.in for the pip-compile command
+# to re-generate this properly once run somewhere with network, e.g. CI).
+# Dev/research-only extras (torch, jupyter, seaborn, optuna, pytest) live in
+# requirements-dev.txt instead — they are not imported anywhere on this path.
+annotated-doc==0.0.4
+annotated-types==0.7.0
+anyio==4.13.0
+catboost==1.2.10
+certifi==2026.2.25
+click==8.3.1
+cloudpickle==3.1.2
+colorama==0.4.6
+contourpy==1.3.3
+cycler==0.12.1
+dnspython==2.8.0
+email-validator==2.3.0
 fastapi==0.111.0
-uvicorn[standard]==0.29.0
-python-multipart==0.0.9
-python-dotenv==1.0.0
+fastapi-cli==0.0.24
+fonttools==4.62.1
+graphviz==0.21
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.7.1
+httpx==0.28.1
+idna==3.11
+Jinja2==3.1.6
+joblib==1.5.3
+kiwisolver==1.5.0
+lightgbm==4.6.0
+llvmlite==0.46.0
+markdown-it-py==4.0.0
+MarkupSafe==3.0.3
+matplotlib==3.10.8
+mdurl==0.1.2
+narwhals==2.18.1
+numba==0.64.0
+numpy==2.4.4
+orjson==3.11.7
+packaging==26.0
+pandas==3.0.1
+pillow==12.1.1
+plotly==6.6.0
 pydantic==2.6.0
-# churn_intel.config reads backend/config.yaml at import, so this is on the app
-# path, not a dev-only extra. It was previously undeclared and imported only
-# because the dev venv happened to carry it.
-pyyaml==6.0.3
+pydantic_core==2.16.1
+Pygments==2.20.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.0.0
+python-multipart==0.0.9
+PyYAML==6.0.3
+rich==14.3.3
+rich-toolkit==0.19.7
+scikit-learn==1.8.0
+scipy==1.17.1
+shap==0.51.0
+shellingham==1.5.4
+six==1.17.0
+slicer==0.0.8
+starlette==0.37.2
+threadpoolctl==3.6.0
+tqdm==4.67.3
+typer==0.24.1
+typing_extensions==4.15.0
+tzdata==2025.3
+ujson==5.12.0
+uvicorn==0.29.0
+watchfiles==1.1.1
+websockets==16.0
+xgboost==3.2.0
