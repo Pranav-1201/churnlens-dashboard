@@ -13,7 +13,6 @@ Correctness contract (Phase 1 fix pass, see AUDIT.md):
 """
 
 import logging
-import traceback
 import warnings
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -39,8 +38,6 @@ from .features import engineer_features, feature_names_of, risk_level
 from .modeling import _run_model, _shap_matrix, build_model_zoo
 
 logger = logging.getLogger(__name__)
-
-warnings.filterwarnings("ignore")
 
 
 def run_pipeline(
@@ -90,22 +87,26 @@ def run_pipeline(
 
         # Categorical columns after feature engineering (for CatBoost)
         engineered_sample = engineer_features(X_train.head(50))
-        cat_cols = engineered_sample.select_dtypes(include=["object", "category"]).columns.tolist()
+        cat_cols = engineered_sample.select_dtypes(include=["object", "str", "category"]).columns.tolist()
 
         zoo = build_model_zoo(scale_pos_weight, cat_cols)
 
         # ── Validate + fit each model ────────────────────────────────────────
+        # Model fitting is noisy (sklearn convergence/deprecation warnings);
+        # scoped to this loop only, not a process-wide filter.
         model_results = []
-        for name, pct, builder in zoo:
-            progress(pct, f"Training {name} (out-of-fold validation)")
-            try:
-                res = _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
-                                 cost_fn, cost_fp)
-                model_results.append(res)
-                logger.info("[OK] %s: cv_auc=%s, val_cost=%s, val_threshold=%s",
-                            name, res["cv_mean"], res["cost"], res["threshold"])
-            except Exception as e:
-                logger.exception("[FAIL] %s failed: %s", name, e)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            for name, pct, builder in zoo:
+                progress(pct, f"Training {name} (out-of-fold validation)")
+                try:
+                    res = _run_model(name, builder, X_train, y_train, X_test, y_test, skf,
+                                     cost_fn, cost_fp)
+                    model_results.append(res)
+                    logger.info("[OK] %s: cv_auc=%s, val_cost=%s, val_threshold=%s",
+                                name, res["cv_mean"], res["cost"], res["threshold"])
+                except Exception as e:
+                    logger.exception("[FAIL] %s failed: %s", name, e)
 
         if not model_results:
             raise RuntimeError("All models failed to train")
@@ -269,4 +270,5 @@ def run_pipeline(
         return results
 
     except Exception as e:
-        raise RuntimeError(f"Pipeline failed: {e}\n{traceback.format_exc()}")
+        logger.exception("Pipeline failed: %s", e)
+        raise RuntimeError(f"Pipeline failed: {e}") from e

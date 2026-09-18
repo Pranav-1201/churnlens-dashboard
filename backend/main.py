@@ -47,7 +47,7 @@ app = FastAPI(title="ChurnLens API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -190,7 +190,12 @@ def get_results(job_id: str):
         raise HTTPException(404, "Job not found")
 
     if status["status"] != "complete":
-        raise HTTPException(202, f"Job not complete: {status['status']}")
+        # 202 = accepted/processing, not an error; a normal response (not an
+        # HTTPException) keeps that semantic honest for the client.
+        return JSONResponse(
+            {"status": status["status"], "detail": "Job not complete"},
+            status_code=202,
+        )
 
     results = job_store.get_results(job_id)
     if results is None:
