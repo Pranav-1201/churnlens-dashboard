@@ -223,7 +223,7 @@ def _shap_matrix(best_pipeline: Pipeline, X_test_raw: pd.DataFrame, max_rows: in
     transformed = prep.transform(X_test_raw.iloc[:max_rows])
 
     if HAS_CAT and isinstance(model, CatBoostClassifier):
-        cat_cols = transformed.select_dtypes(include=["object"]).columns.tolist()
+        cat_cols = transformed.select_dtypes(include=["object", "str"]).columns.tolist()
         pool = Pool(transformed, cat_features=cat_cols)
         vals = model.get_feature_importance(pool, type="ShapValues")
         return vals[:, :-1], [str(c).replace(" ", "_") for c in transformed.columns]

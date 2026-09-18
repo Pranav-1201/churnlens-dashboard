@@ -69,7 +69,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 def stringify_categoricals(df: pd.DataFrame) -> pd.DataFrame:
     """CatBoost needs its categorical columns as plain strings without NaN."""
     df = df.copy()
-    for col in df.select_dtypes(include=["object", "category"]).columns:
+    for col in df.select_dtypes(include=["object", "str", "category"]).columns:
         df[col] = df[col].astype("object").where(df[col].notna(), "Missing").astype(str)
     return df
 

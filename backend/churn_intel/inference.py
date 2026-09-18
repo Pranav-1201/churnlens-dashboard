@@ -53,7 +53,7 @@ def get_shap_values(pipeline, metadata: dict, df_raw: pd.DataFrame):
         if isinstance(transformed, pd.DataFrame):  # CatBoost pipeline
             from catboost import CatBoostClassifier, Pool
             if isinstance(model, CatBoostClassifier):
-                cat_cols = transformed.select_dtypes(include=["object"]).columns.tolist()
+                cat_cols = transformed.select_dtypes(include=["object", "str"]).columns.tolist()
                 vals = model.get_feature_importance(
                     Pool(transformed, cat_features=cat_cols), type="ShapValues"
                 )[:, :-1]
