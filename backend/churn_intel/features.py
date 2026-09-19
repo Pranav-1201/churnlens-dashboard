@@ -10,10 +10,8 @@ Both training (pipeline.py / train.py) and inference (inference.py) use the same
 fitted sklearn Pipeline object, so train/inference encoding can never diverge
 (AUDIT.md §3.A / brief bug #8).
 
-NOTE: the flat shim backend/features.py must stay importable as `features`
-wherever a pre-restructure artifact is unpickled (that pipeline stores a
-reference to `features.engineer_features`). Artifacts trained after the
-restructure reference `churn_intel.features.engineer_features` instead.
+NOTE: the artifact pickles a reference to `churn_intel.features.engineer_features`,
+so this module's path and that function's name must stay stable (or retrain).
 """
 
 import numpy as np

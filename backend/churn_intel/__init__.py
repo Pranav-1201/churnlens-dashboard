@@ -13,8 +13,6 @@ Split from the former flat backend modules (Phase 3, item 1):
     schemas   — API request/response schemas + training-CSV validation
     jobs      — in-memory async job tracker
 
-The flat modules left in backend/ (features.py, pipeline.py, predictor.py,
-model_loader.py, schemas.py, job_store.py) are thin compatibility shims.
-backend/features.py in particular MUST remain importable: the serialized
-artifact references `features.engineer_features` (see AUDIT.md / HANDOFF.md).
+The serialized artifact references `churn_intel.features.engineer_features`;
+renaming that module or function requires retraining (python backend/train.py).
 """
