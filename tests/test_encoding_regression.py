@@ -13,7 +13,7 @@ a customer's features cannot depend on who else happens to be in the batch.
 import pandas as pd
 import pytest
 
-import predictor
+from churn_intel import inference as predictor
 
 
 CUSTOMER = {

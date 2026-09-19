@@ -15,9 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from pipeline import (GROSS_MARGIN, OFFER_DURATION_MONTHS, RETENTION_DISCOUNT,
-                      business_cost, cost_sensitivity_curve, cost_threshold_curve,
-                      derive_costs)
+from churn_intel.config import GROSS_MARGIN, OFFER_DURATION_MONTHS, RETENTION_DISCOUNT
+from churn_intel.costs import (business_cost, cost_sensitivity_curve,
+                               cost_threshold_curve, derive_costs)
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "data", "telco_churn.csv")
