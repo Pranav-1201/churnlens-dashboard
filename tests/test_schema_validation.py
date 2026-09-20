@@ -19,7 +19,7 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
-from schemas import CustomerInput, validate_training_frame
+from churn_intel.schemas import CustomerInput, validate_training_frame
 
 
 # ── CustomerInput (API payload) ───────────────────────────────────────────────

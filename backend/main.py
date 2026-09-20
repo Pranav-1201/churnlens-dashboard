@@ -27,10 +27,12 @@ from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, 
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-import job_store
-from pipeline import run_pipeline, cost_threshold_curve, cost_sensitivity_curve
-from predictor import predict as run_predict
-from schemas import CustomerInput, PredictionResponse, validate_training_frame
+from churn_intel import jobs as job_store
+from churn_intel.config import DEMO_CSV_PATH
+from churn_intel.costs import cost_sensitivity_curve, cost_threshold_curve
+from churn_intel.inference import predict as run_predict
+from churn_intel.pipeline import run_pipeline
+from churn_intel.schemas import CustomerInput, PredictionResponse, validate_training_frame
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,14 +47,14 @@ app = FastAPI(title="ChurnLens API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000", "*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Paths
-DEMO_CSV_PATH = "D:/MLProject/data/telco_churn.csv"
+# Paths: DEMO_CSV_PATH comes from config.yaml, resolved relative to the config
+# file rather than hardcoded to one machine's drive layout.
 
 # Cache last pipeline results
 _last_results: dict = {}
@@ -115,7 +117,7 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
 @app.get("/health")
 def health():
     try:
-        from model_loader import load_artifact
+        from churn_intel.artifacts import load_artifact
         _, _, meta = load_artifact()
         feature_count = len(meta.get("feature_names", []))
         model_name = meta.get("model_name")
@@ -188,7 +190,12 @@ def get_results(job_id: str):
         raise HTTPException(404, "Job not found")
 
     if status["status"] != "complete":
-        raise HTTPException(202, f"Job not complete: {status['status']}")
+        # 202 = accepted/processing, not an error; a normal response (not an
+        # HTTPException) keeps that semantic honest for the client.
+        return JSONResponse(
+            {"status": status["status"], "detail": "Job not complete"},
+            status_code=202,
+        )
 
     results = job_store.get_results(job_id)
     if results is None:

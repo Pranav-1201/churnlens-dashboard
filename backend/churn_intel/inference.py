@@ -1,5 +1,4 @@
-"""
-predictor.py — single-customer inference over the serialized pipeline artifact.
+"""inference.py — single-customer inference over the serialized pipeline artifact.
 
 The artifact IS the full preprocessing+model pipeline (features.build_model_pipeline),
 so there is deliberately NO encoding logic in this file: the exact transformers that
@@ -12,8 +11,8 @@ import numpy as np
 import pandas as pd
 from sklearn.pipeline import Pipeline as SkPipeline
 
-from features import risk_level
-from model_loader import load_artifact
+from .artifacts import load_artifact
+from .features import risk_level
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +43,7 @@ def prepare_input(raw_input: dict) -> pd.DataFrame:
 def get_shap_values(pipeline, metadata: dict, df_raw: pd.DataFrame):
     """Real SHAP values for one customer, or None if unsupported — never fake."""
     try:
-        from pipeline import _get_explainer  # explainer dispatch lives with training code
+        from .modeling import _get_explainer  # explainer dispatch lives with training code
 
         prep = SkPipeline(pipeline.steps[:-1])
         model = pipeline.named_steps["model"]
@@ -54,7 +53,7 @@ def get_shap_values(pipeline, metadata: dict, df_raw: pd.DataFrame):
         if isinstance(transformed, pd.DataFrame):  # CatBoost pipeline
             from catboost import CatBoostClassifier, Pool
             if isinstance(model, CatBoostClassifier):
-                cat_cols = transformed.select_dtypes(include=["object"]).columns.tolist()
+                cat_cols = transformed.select_dtypes(include=["object", "str"]).columns.tolist()
                 vals = model.get_feature_importance(
                     Pool(transformed, cat_features=cat_cols), type="ShapValues"
                 )[:, :-1]

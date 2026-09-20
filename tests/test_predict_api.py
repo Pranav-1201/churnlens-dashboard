@@ -7,14 +7,14 @@ risk label must agree with the decision the threshold actually makes.
 """
 import pytest
 
-import predictor
-from features import risk_level
+from churn_intel import inference
+from churn_intel.features import risk_level
 from test_encoding_regression import CUSTOMER
 
 
 def test_single_customer_categoricals_reach_the_model():
     """The exact test that would have caught the original bug at the API level."""
-    row = predictor.prepare_input(CUSTOMER)
+    row = inference.prepare_input(CUSTOMER)
     values = row.iloc[0]
 
     if "Contract" in row.columns:
@@ -45,7 +45,7 @@ def test_single_customer_categoricals_reach_the_model():
 
 
 def test_predict_response_is_internally_consistent():
-    res = predictor.predict(CUSTOMER)
+    res = inference.predict(CUSTOMER)
 
     assert 0.0 <= res["probability"] <= 1.0
     assert res["prediction"] == int(res["probability"] >= res["threshold_used"])

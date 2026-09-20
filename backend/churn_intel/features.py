@@ -1,5 +1,4 @@
-"""
-features.py — the single canonical path from a raw customer row to model-ready features.
+"""features.py — the single canonical path from a raw customer row to model-ready features.
 
 Everything that turns raw Telco columns into model inputs lives here and ONLY here:
   * engineer_features()      — engineered columns (pure function, picklable)
@@ -7,12 +6,12 @@ Everything that turns raw Telco columns into model inputs lives here and ONLY he
   * build_catboost_pipeline()— engineer -> stringify -> CatBoost (native categoricals)
   * risk_level()             — risk bands derived from the actual decision threshold
 
-Both training (pipeline.py / train.py) and inference (predictor.py) use the same
+Both training (pipeline.py / train.py) and inference (inference.py) use the same
 fitted sklearn Pipeline object, so train/inference encoding can never diverge
 (AUDIT.md §3.A / brief bug #8).
 
-NOTE: this module must stay importable as `features` wherever the serialized
-artifact is unpickled (the pipeline stores a reference to engineer_features).
+NOTE: the artifact pickles a reference to `churn_intel.features.engineer_features`,
+so this module's path and that function's name must stay stable (or retrain).
 """
 
 import numpy as np
@@ -68,7 +67,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 def stringify_categoricals(df: pd.DataFrame) -> pd.DataFrame:
     """CatBoost needs its categorical columns as plain strings without NaN."""
     df = df.copy()
-    for col in df.select_dtypes(include=["object", "category"]).columns:
+    for col in df.select_dtypes(include=["object", "str", "category"]).columns:
         df[col] = df[col].astype("object").where(df[col].notna(), "Missing").astype(str)
     return df
 

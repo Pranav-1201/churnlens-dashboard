@@ -1,7 +1,6 @@
-"""
-model_loader.py — loads the single serialized pipeline artifact.
+"""artifacts.py — save/load of the single serialized pipeline artifact.
 
-Artifact format (written by pipeline.save_artifact / train.py):
+Artifact format (written by save_artifact / train.py):
     {"pipeline": sklearn Pipeline (raw df in -> proba out),
      "threshold": float,
      "metadata": {model_name, feature_names, trained_at, git_commit, ...}}
@@ -10,17 +9,20 @@ Artifact format (written by pipeline.save_artifact / train.py):
 import logging
 import os
 import pickle
+import subprocess
 
 logger = logging.getLogger(__name__)
 
 _cache: dict = {}
 
+# backend/ — the directory that contains this package
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 def _artifact_path() -> str:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
     candidates = [
-        os.path.join(base_dir, "models", "churn_model.pkl"),
-        os.path.join(base_dir, "..", "models", "churn_model.pkl"),
+        os.path.join(_BACKEND_DIR, "models", "churn_model.pkl"),
+        os.path.join(_BACKEND_DIR, "..", "models", "churn_model.pkl"),
     ]
     for path in candidates:
         if os.path.exists(path):
@@ -60,3 +62,20 @@ def load_artifact():
 def clear_cache():
     """For tests: force a reload on next access."""
     _cache.clear()
+
+
+def save_artifact(path, pipeline, threshold, metadata):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "wb") as f:
+        pickle.dump({"pipeline": pipeline, "threshold": float(threshold), "metadata": metadata}, f)
+
+
+def _git_commit() -> str:
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True, text=True, timeout=5, check=True,
+        ).stdout.strip()
+    except Exception:
+        return "unknown"

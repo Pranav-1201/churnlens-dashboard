@@ -1,5 +1,4 @@
-"""
-job_store.py  —  In-memory async job tracker for ChurnLens
+"""jobs.py  —  In-memory async job tracker for ChurnLens
 No Redis / Celery required. Stores up to MAX_JOBS jobs in a dict.
 For multi-worker deployments, swap the dict for a Redis client.
 """

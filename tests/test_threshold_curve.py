@@ -14,12 +14,9 @@ import pandas as pd
 import pytest
 from sklearn.model_selection import train_test_split
 
-from pipeline import (
-    THRESHOLD_GRID,
-    cost_threshold_curve,
-    find_best_threshold,
-    run_pipeline,
-)
+from churn_intel.config import THRESHOLD_GRID
+from churn_intel.costs import cost_threshold_curve, find_best_threshold
+from churn_intel.pipeline import run_pipeline
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "data", "telco_churn.csv")

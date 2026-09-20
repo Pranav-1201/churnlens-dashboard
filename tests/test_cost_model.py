@@ -15,8 +15,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
-from pipeline import (GROSS_MARGIN, OFFER_DURATION_MONTHS, RETENTION_DISCOUNT,
-                      cost_sensitivity_curve, cost_threshold_curve, derive_costs)
+from churn_intel.config import GROSS_MARGIN, OFFER_DURATION_MONTHS, RETENTION_DISCOUNT
+from churn_intel.costs import (business_cost, cost_sensitivity_curve,
+                               cost_threshold_curve, derive_costs)
 
 DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                     "data", "telco_churn.csv")
@@ -43,6 +44,50 @@ def test_derive_costs_falls_back_without_columns():
     fn, fp, d = derive_costs(pd.DataFrame({"x": [1, 2, 3]}))
     assert d["method"] == "fallback_constants"
     assert (fn, fp) == (10000, 500)
+
+
+def test_derive_costs_without_churn_uses_mean_tenure_of_everyone():
+    """No Churn column means no way to isolate retained customers, so the
+    lifetime proxy is the mean tenure across the whole frame."""
+    df = pd.DataFrame({"MonthlyCharges": [40.0, 60.0], "tenure": [10, 30]})
+    fn, _, d = derive_costs(df)
+
+    lifetime = (10 + 30) / 2
+    assert d["retained_lifetime_months"] == lifetime
+    assert fn == round(((40.0 + 60.0) / 2) * lifetime * GROSS_MARGIN)
+
+
+def test_derive_costs_with_no_retained_customers_uses_mean_tenure_of_everyone():
+    df = pd.DataFrame({"MonthlyCharges": [40.0, 60.0], "tenure": [10, 30],
+                       "Churn": ["Yes", "Yes"]})
+    assert derive_costs(df)[2]["retained_lifetime_months"] == (10 + 30) / 2
+
+
+def test_derive_costs_never_returns_a_zero_false_positive_cost():
+    """A near-free plan would otherwise round the FP cost to 0, making every
+    retention offer free and the optimal threshold degenerate."""
+    df = pd.DataFrame({"MonthlyCharges": [0.1, 0.1], "tenure": [5, 5],
+                       "Churn": ["No", "No"]})
+    # RETENTION_DISCOUNT * 0.1 * OFFER_DURATION_MONTHS rounds to 0 before the guard.
+    assert round(RETENTION_DISCOUNT * 0.1 * OFFER_DURATION_MONTHS) == 0
+    assert derive_costs(df)[1] == 1
+
+
+def test_business_cost_weights_false_negatives_and_false_positives():
+    y_true = [1, 1, 0, 0, 1]
+    y_pred = [0, 1, 1, 0, 0]
+    false_negatives = sum(t == 1 and p == 0 for t, p in zip(y_true, y_pred))
+    false_positives = sum(t == 0 and p == 1 for t, p in zip(y_true, y_pred))
+    assert (false_negatives, false_positives) == (2, 1)
+
+    assert business_cost(y_true, y_pred, cost_fn=100, cost_fp=7) == \
+        false_negatives * 100 + false_positives * 7
+
+
+def test_business_cost_handles_a_single_class_batch():
+    """With only one class present, confusion_matrix needs explicit labels to
+    stay 2x2; otherwise unpacking tn/fp/fn/tp fails."""
+    assert business_cost([0, 0, 0], [0, 0, 0], cost_fn=100, cost_fp=7) == 0
 
 
 @pytest.fixture

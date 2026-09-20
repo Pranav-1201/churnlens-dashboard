@@ -1,5 +1,4 @@
-"""
-schemas.py — request/response schemas and input validation.
+"""schemas.py — request/response schemas and input validation.
 
 Two validation surfaces (Phase 3, item 6):
   * CustomerInput  — the /predict payload. Categorical fields are constrained to
