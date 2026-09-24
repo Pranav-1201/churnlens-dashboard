@@ -44,3 +44,64 @@ jobs:
 
       - name: Run end-to-end train test
         run: pytest -q -m slow
+
+  docker:
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build backend image
+        run: docker build -f backend/Dockerfile --build-arg GIT_SHA=${GITHUB_SHA::7} -t churnlens-backend:ci .
+
+      - name: Smoke-test backend container
+        run: |
+          docker run -d --name churnlens-backend -p 8000:8000 churnlens-backend:ci
+          ok=""
+          for i in $(seq 1 20); do
+            if curl -sf http://localhost:8000/health > /tmp/health.json; then ok=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ok" ]; then docker logs churnlens-backend; exit 1; fi
+          cat /tmp/health.json
+          commit=$(jq -r '.app_git_commit' /tmp/health.json)
+          if [ "$commit" = "unknown" ] || [ -z "$commit" ]; then
+            echo "app_git_commit was not baked into the image (got: $commit)"; exit 1
+          fi
+          docker stop churnlens-backend
+
+      - name: Build frontend image
+        run: docker build -f Dockerfile.frontend --build-arg VITE_API_BASE_URL=http://localhost:8000 -t churnlens-frontend:ci .
+
+      - name: Smoke-test frontend container
+        run: |
+          docker run -d --name churnlens-frontend -p 8080:80 churnlens-frontend:ci
+          ok=""
+          for i in $(seq 1 10); do
+            if curl -sf http://localhost:8080/ > /dev/null; then ok=1; break; fi
+            sleep 2
+          done
+          if [ -z "$ok" ]; then docker logs churnlens-frontend; exit 1; fi
+          docker stop churnlens-frontend
+
+  catboost-thread-check:
+    # Phase 6.2: re-test the CatBoost background-thread deadlock (previously
+    # only observed on Windows — see backend/seed_demo_run.py's docstring)
+    # against Linux, the actual deploy target. See
+    # backend/diagnostics/catboost_thread_check.py for what this does and why.
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run CatBoost background-thread check (60s timeout)
+        run: python backend/diagnostics/catboost_thread_check.py
