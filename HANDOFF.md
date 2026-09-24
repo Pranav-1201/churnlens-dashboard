@@ -1,19 +1,20 @@
 # ChurnLens — Session Handoff
 
-Living handoff for a fresh Claude Code session. Last updated 2026-09-21: **Phases 3, 4 and 5 are complete and merged to `main`.** Next is Phase 6 (deployment).
+Living handoff for a fresh Claude Code session. Last updated 2026-09-24: **Phases 3, 4, 5 and 6 are complete.** Phase 6 is on branch `phase6-deployment` (committed locally, not yet pushed/PR'd — see section 4a).
 
 ---
 
 ## 0. TL;DR
 
-ChurnLens is a full-stack Telco churn app: **FastAPI backend (`backend/`) + React/Vite/shadcn dashboard (`src/`) + Jupyter notebook (`notebooks/`)**. A multi-phase refactor fixed methodological ML bugs (leakage, fabricated charts, hardcoded costs) and is now doing engineering hygiene.
+ChurnLens is a full-stack Telco churn app: **FastAPI backend (`backend/`) + React/Vite/shadcn dashboard (`src/`) + Jupyter notebook (`notebooks/`, exploratory only)**. A multi-phase refactor fixed methodological ML bugs (leakage, fabricated charts, hardcoded costs), did engineering hygiene, and now has a first deployment story.
 
-- Phases 1 and 2 merged via PR #1 (`4856d3bb`). **Phases 3 to 5 merged via PR #2** (branch `phase3-restructure`; CI green on `5f154c37`).
-- Phase 3: `churn_intel` package, `config.yaml`, broader tests. Phase 4: CORS fix, no traceback leak, honest 202, pandas 3 warnings, `mockData.ts` deleted (`694b3c73`, `6b7d76f4`, `e5acf116`). Phase 5: pinned and split requirements (`63c8eecc`), CI (`711f5b50`), retrained artifact and six flat shims deleted (`d568ae7d`). Also `.env` untracked (`73c2d309`).
-- **Suite: 101 passed, 1 deselected** (local 2026-09-20; same count on the CI Ubuntu runner). **churn_intel coverage 73%** (CI).
-- **Next: Phase 6** (see section 4). Stop for the user's review before starting it.
+- Phases 1 and 2 merged via PR #1 (`4856d3bb`). **Phases 3 to 5 merged via PR #2** (`294631b6`, from branch `phase3-restructure`; CI green).
+- Phase 3: `churn_intel` package, `config.yaml`, broader tests. Phase 4: CORS fix, no traceback leak, honest 202, pandas 3 warnings, `mockData.ts` deleted. Phase 5: pinned and split requirements, CI, retrained artifact and six flat shims deleted.
+- **Phase 6 (this session, branch `phase6-deployment`, commits `3dbba30`/`9146d79`):** backend/frontend Dockerfiles + compose + CI docker-build/smoke-test job; `CHURNLENS_API_KEY` auth on `/run-pipeline`/`/upload`; request-logging middleware; `/health` now reports `app_git_commit`/`artifact_git_commit`/`artifact_trained_at`/`artifact_age_seconds`; a CatBoost-background-thread-deadlock re-test (see section 4a — **not conclusively resolved, read the caveat**); `DEPLOYMENT.md`; notebook marked exploratory. See `DEPLOYMENT.md` for details.
+- **Suite: 112 passed, 1 deselected** (local 2026-09-24, Python 3.11.9). Not yet re-measured on CI for Phase 6 (branch unpushed).
+- **This machine was reset since the last session** (new Windows install, new user profile) — the venv, node_modules, and Python 3.11 itself were gone and were rebuilt/reinstalled this session; see section 4a.
 
-**Read first:** `AUDIT.md`, `README.md`, this file. Project memory: `churnlens-project-state.md`. Full deployment roadmap: `E:\Projects and Research papers\ML Project - Customer Churn Prediction Model\Project\IMPROVEMENT_PLAN.md`.
+**Read first:** `AUDIT.md`, `README.md`, `DEPLOYMENT.md`, this file. Project memory: `churnlens-project-state.md`. The external roadmap file (`E:\Projects and Research papers\...\IMPROVEMENT_PLAN.md`) **no longer exists on this machine** (the `E:` drive is gone post-reset) — Phase 6's scope below was carried forward from this file's own section 4, not re-read from that file.
 
 ---
 
@@ -76,18 +77,33 @@ npm run dev
 
 ---
 
-## 4. Next: Phase 6 (deployment)
+## 4. Phase 6 (deployment) — done this session
 
-Phases 3 to 5 are done and merged; per the working rules, **stop for the user's review before starting Phase 6.** From `IMPROVEMENT_PLAN.md`, one PR per row:
+All four rows from the old plan are done on branch `phase6-deployment` (not yet pushed — see 4a):
 
-1. **6.1 Containerize:** backend Dockerfile installing from `requirements.txt` (not the dev file), `.dockerignore`, frontend static build served by nginx or Caddy with `VITE_API_BASE_URL` per environment. Verify with a real `docker build` and `/health` from the container (no Docker on this machine; CI can do it).
-2. **6.2 Serving decisions:** document exactly one worker (in-memory `jobs` and one `last_run.json`), an API-key header on `/run-pipeline` and `/upload`, and re-test the CatBoost background-thread deadlock on Linux (subprocess fallback if it persists).
-3. **6.3 Observability:** request logging middleware; `/health` with artifact age and git commit.
-4. **6.4 Docs:** README with architecture and run/deploy steps; mark the notebook exploratory-only.
+1. **6.1 Containerize:** `backend/Dockerfile` (installs from `requirements.txt`, not the dev file; `--workers 1`; non-root), `.dockerignore`, `Dockerfile.frontend` (Vite build served by Caddy, `VITE_API_BASE_URL` as a build ARG), `docker-compose.yml`. Verified via a new CI `docker` job (build both images, smoke-test `/health` and static serving) — **not yet verified on a machine that can run Docker directly** (none available this session either; see 4a).
+2. **6.2 Serving decisions:** documented in `DEPLOYMENT.md` §3 (single worker, why). `CHURNLENS_API_KEY` header auth on `/run-pipeline`/`/upload` (`churn_intel/auth.py`, `tests/test_auth.py`, 8 tests). CatBoost background-thread deadlock re-tested (`backend/diagnostics/catboost_thread_check.py` + new CI `catboost-thread-check` job) — **did not reproduce on Windows this session, so it is not conclusively resolved either way; read `DEPLOYMENT.md` §3's caveat before assuming it's fine on Linux.**
+3. **6.3 Observability:** request-logging middleware; `/health` adds `app_git_commit`, `artifact_git_commit`, `artifact_trained_at`, `artifact_age_seconds` (`tests/test_health.py`, 3 tests).
+4. **6.4 Docs:** `DEPLOYMENT.md` (new); `README.md` architecture/deploy section; notebook's first cell now states it's exploratory-only.
 
-**Coverage** (CI, 2026-09-20): TOTAL 73%. Remaining gaps are mostly by design: `pipeline.py` and `modeling.py` (OOF loop, SHAP) are exercised only by the slow end-to-end test; `inference.py` SHAP path.
+**Coverage** (CI, 2026-09-20, pre-Phase-6): TOTAL 73%. Remaining gaps are mostly by design: `pipeline.py` and `modeling.py` (OOF loop, SHAP) are exercised only by the slow end-to-end test; `inference.py` SHAP path. Not re-measured for Phase 6's additions (branch unpushed, no CI run yet).
 
 **Mutation-testing method** (used for the item 7 tests): plant one bug per run into a production module, run only that module's tests, restore the original bytes in a `finally` block, then confirm `git diff backend/` is clean. A new test only counts once it has been watched failing.
+
+## 4a. This session's environment rebuild (2026-09-24)
+
+The user reset this laptop; this was the first session back. Before Phase 6:
+
+- `venv/`, `node_modules/`, `__pycache__`, `.pytest_cache`, `.coverage` deleted and rebuilt from scratch (all gitignored, none were source).
+- **Python 3.11 was gone** (only 3.10/3.13 installed) — `requirements.txt`'s pins (`contourpy==1.3.3` needs ≥3.11; `pydantic_core==2.16.1` has no cp313 wheel and no Rust toolchain was present to build it) meant only 3.11 works. Installed Python 3.11.9 via `winget install --id Python.Python.3.11` (matches CI's `python-version: "3.11"` and this file's old §1 note) — a real, system-level, but standard and reversible software install.
+- Rebuilt venv on 3.11.9: 172 packages, `pip check` clean. `npm install`: 480 packages, clean.
+- Verified before starting Phase 6: `pytest -q` → 101 passed, 1 deselected (matched the pre-reset baseline exactly); `npm run test` → 8/8; `npm run build` → clean; backend booted, `/health` returned 200, loaded the existing `models/churn_model.pkl` correctly.
+- No Docker, no WSL, no Rust toolchain on this machine (checked, not installed — WSL/Docker Desktop need a reboot and virtualization changes, judged too invasive to do autonomously without asking).
+- The external roadmap file on `E:\` no longer exists (that drive is gone) — Phase 6's scope was read from this file's own section 4 instead.
+- Pre-existing frontend lint debt noted, not touched (10 errors, mostly `no-explicit-any`) — not new breakage, out of scope for this session's ask.
+- Local `main` was 16 commits behind `origin/main` (which already had PR #2 merged) — fast-forwarded before branching `phase6-deployment` off it.
+
+**Not pushed.** Per this file's own §6 working rule ("commit/push only when asked") and the user's global CLAUDE.md, Phase 6's two commits are local-only on `phase6-deployment`. Push and open a PR when asked; that will also be the first real CI run of the new `docker` and `catboost-thread-check` jobs.
 
 ---
 
