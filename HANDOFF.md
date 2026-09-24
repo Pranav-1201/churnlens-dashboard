@@ -1,6 +1,6 @@
 # ChurnLens — Session Handoff
 
-Living handoff for a fresh Claude Code session. Last updated 2026-09-24: **Phases 3, 4, 5 and 6 are complete.** Phase 6 is on branch `phase6-deployment` (committed locally, not yet pushed/PR'd — see section 4a).
+Living handoff for a fresh Claude Code session. Last updated 2026-09-24: **Phases 3, 4, 5 and 6 are complete.** Phase 6 is [PR #3](https://github.com/Pranav-1201/churnlens-dashboard/pull/3) (branch `phase6-deployment`), CI green — awaiting merge (see section 4a).
 
 ---
 
@@ -82,7 +82,7 @@ npm run dev
 All four rows from the old plan are done on branch `phase6-deployment` (not yet pushed — see 4a):
 
 1. **6.1 Containerize:** `backend/Dockerfile` (installs from `requirements.txt`, not the dev file; `--workers 1`; non-root), `.dockerignore`, `Dockerfile.frontend` (Vite build served by Caddy, `VITE_API_BASE_URL` as a build ARG), `docker-compose.yml`. Verified via a new CI `docker` job (build both images, smoke-test `/health` and static serving) — **not yet verified on a machine that can run Docker directly** (none available this session either; see 4a).
-2. **6.2 Serving decisions:** documented in `DEPLOYMENT.md` §3 (single worker, why). `CHURNLENS_API_KEY` header auth on `/run-pipeline`/`/upload` (`churn_intel/auth.py`, `tests/test_auth.py`, 8 tests). CatBoost background-thread deadlock re-tested (`backend/diagnostics/catboost_thread_check.py` + new CI `catboost-thread-check` job) — **did not reproduce on Windows this session, so it is not conclusively resolved either way; read `DEPLOYMENT.md` §3's caveat before assuming it's fine on Linux.**
+2. **6.2 Serving decisions:** documented in `DEPLOYMENT.md` §3 (single worker, why). `CHURNLENS_API_KEY` header auth on `/run-pipeline`/`/upload` (`churn_intel/auth.py`, `tests/test_auth.py`, 8 tests). CatBoost background-thread deadlock re-tested (`backend/diagnostics/catboost_thread_check.py` + new CI `catboost-thread-check` job) — **did not reproduce on Windows or on the Linux CI runner** (PR #3, run `36028099260`, 0.2s, `python=3.11.16, platform=linux`); real evidence for the tested repro pattern, not proof the original observation was wrong under real production load — see `DEPLOYMENT.md` §3.
 3. **6.3 Observability:** request-logging middleware; `/health` adds `app_git_commit`, `artifact_git_commit`, `artifact_trained_at`, `artifact_age_seconds` (`tests/test_health.py`, 3 tests).
 4. **6.4 Docs:** `DEPLOYMENT.md` (new); `README.md` architecture/deploy section; notebook's first cell now states it's exploratory-only.
 
@@ -103,7 +103,7 @@ The user reset this laptop; this was the first session back. Before Phase 6:
 - Pre-existing frontend lint debt noted, not touched (10 errors, mostly `no-explicit-any`) — not new breakage, out of scope for this session's ask.
 - Local `main` was 16 commits behind `origin/main` (which already had PR #2 merged) — fast-forwarded before branching `phase6-deployment` off it.
 
-**Not pushed.** Per this file's own §6 working rule ("commit/push only when asked") and the user's global CLAUDE.md, Phase 6's two commits are local-only on `phase6-deployment`. Push and open a PR when asked; that will also be the first real CI run of the new `docker` and `catboost-thread-check` jobs.
+**Pushed and PR'd** (with explicit go-ahead — per this file's own §6 working rule, "commit/push only when asked"): [PR #3](https://github.com/Pranav-1201/churnlens-dashboard/pull/3), branch `phase6-deployment` → `main`. First real CI run of the new jobs, all green: `test` (3m9s), `docker` (1m34s — both images build, `/health` responds with a real `app_git_commit`, frontend serves its static build), `catboost-thread-check` (49s, see section 4 item 2 for the actual output line). Awaiting merge.
 
 ---
 

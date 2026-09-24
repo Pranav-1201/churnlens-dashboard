@@ -87,27 +87,32 @@ backend/churn_intel/auth.py, tests/test_auth.py). /predict, /health, and
 the read-only chart endpoints are intentionally left open -- they don't
 mutate state or cost meaningful compute per call.
 
-**CatBoost background-thread deadlock -- re-tested, not conclusively
-resolved.** backend/seed_demo_run.py's docstring records that CatBoost
+**CatBoost background-thread deadlock -- re-tested on Linux, did not
+reproduce.** backend/seed_demo_run.py's docstring records that CatBoost
 hangs when trained inside FastAPI's background-task thread on the Windows
 dev machine, which is why that script skips it. This phase added
 backend/diagnostics/catboost_thread_check.py, which reproduces the real
 dispatch path (an actual FastAPI app, BackgroundTasks, 6 sequential
 CatBoostClassifier.fit() calls matching oof_probabilities' 5-fold-OOF +
-final-fit pattern) with a faulthandler watchdog so a hang produces thread
-dumps instead of a silent timeout.
+final-fit pattern) with a faulthandler watchdog so a hang would produce
+thread dumps instead of a silent timeout.
 
-Run locally on this Windows machine, it did NOT hang -- which contradicts
-the plain reading of the original observation. Possible explanations not
-yet distinguished: the original hang needed the real Telco dataset's
-size/shape, concurrent load (multiple simultaneous requests), or a
-different CatBoost version than the currently pinned 1.2.10. A new CI job
-(catboost-thread-check) runs the same script on Ubuntu, the actual deploy
-target -- check that job's result before concluding either way; this
-document does not claim the deadlock is fixed or absent on Linux, only
-that the check now exists and runs there. If it still deadlocks on Linux,
-the documented fallback is running CatBoost training in a subprocess
-instead of a thread.
+It did not hang on the Windows dev machine either (contradicting the
+plain reading of the original observation), and PR #3's CI run confirms
+the same on the actual deploy target -- the `catboost-thread-check` job
+on `ubuntu-latest` (run 36028099260, 2026-09-24):
+
+    OK: 6 sequential CatBoost.fit() calls (5-fold OOF + final) inside a
+    FastAPI background task completed in 0.2s -- no deadlock on this
+    platform (python=3.11.16, platform=linux).
+
+This is real evidence for the specific repro pattern above (synthetic
+300-row dataset, no concurrent requests, catboost==1.2.10), not proof the
+original observation was wrong -- it may have needed the real Telco
+dataset's size/shape, concurrent load, or a different CatBoost version.
+If a deadlock does surface under real production load, the documented
+fallback is running CatBoost training in a subprocess instead of a
+thread.
 
 ---
 
@@ -129,10 +134,15 @@ instead of a thread.
 
 ## 5. Still open (not done in this phase)
 
-- Docker build/boot has CI evidence but no evidence from a machine that
-  can run Docker directly -- re-verify there when one is available.
-- The CatBoost Linux question above -- resolve from the CI job's actual
-  result, not from this document.
+- Docker build/boot: **verified in CI** (PR #3, run 36028099260, `docker`
+  job, 1m34s — both images build, `/health` responds with a real
+  `app_git_commit`, frontend serves its static build). Still no
+  verification from a machine that can run Docker *directly* (none
+  available this session) — re-verify there when one is available; a CI
+  pass is real evidence but not identical to a local run.
+- The CatBoost Linux question: **resolved for the tested repro pattern**
+  (see section 3) — did not deadlock. Not proven equivalent to the real
+  Telco dataset under production load.
 - Multi-worker/multi-replica serving (see section 3) -- needs a real job
   queue.
 - TLS/reverse proxy, secrets management for CHURNLENS_API_KEY, and actual
