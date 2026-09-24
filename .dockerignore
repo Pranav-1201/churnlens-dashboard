@@ -1,0 +1,27 @@
+# Shared by both build contexts (backend/Dockerfile and Dockerfile.frontend),
+# since both build from the repo root. models/ and data/ are NOT excluded —
+# the backend image needs them.
+.git
+.github
+.claude
+.claude-flow
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+node_modules/
+dist/
+notebooks/.ipynb_checkpoints/
+backend/catboost_info/
+catboost_info/
+*.log
+.env
+.env.*
+!.env.example
+AUDIT.md
+HANDOFF.md
+README.md
+DEPLOYMENT.md
