@@ -1,0 +1,21 @@
+# ChurnLens dashboard image: Vite/React build served as static files by
+# Caddy. VITE_API_BASE_URL is a Vite build-time env var (baked into the
+# bundle via import.meta.env — see src/services/api.ts), so it must be a
+# build ARG, not a runtime env var; rebuild the image per environment.
+#   docker build -f Dockerfile.frontend --build-arg VITE_API_BASE_URL=https://api.example.com -t churnlens-frontend .
+
+# ---- build stage ----
+FROM node:20-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+ARG VITE_API_BASE_URL=http://localhost:8000
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+RUN npm run build
+
+# ---- serve stage ----
+FROM caddy:2-alpine
+COPY --from=build /app/dist /usr/share/caddy
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80
