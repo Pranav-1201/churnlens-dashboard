@@ -231,7 +231,10 @@ probabilities, so including it would not be an apples-to-apples comparison.
 ├── models/
 │   └── churn_model.pkl        # single artifact: pipeline + threshold + metadata
 ├── notebooks/
-│   └── Cuatomer_Churn_Model.ipynb   # research notebook (mirrors the pipeline)
+│   └── Cuatomer_Churn_Model.ipynb   # exploratory/research only — not run in
+│                                    #   production, not kept in lockstep with
+│                                    #   backend/churn_intel/ (see its own first
+│                                    #   cell, and DEPLOYMENT.md)
 ├── tests/                     # pytest: encoding regression + API consistency
 ├── AUDIT.md                   # findings from the correctness audit
 ├── requirements.txt
@@ -239,6 +242,28 @@ probabilities, so including it would not be an apples-to-apples comparison.
 ```
 
 ---
+
+## 🏗️ Architecture
+
+**FastAPI backend** (`backend/`, package `churn_intel`) does data cleaning,
+feature engineering, model training/selection, cost curves, and inference
+behind a REST API. **React/Vite/shadcn dashboard** (`src/`) talks to it over
+HTTP. **Jupyter notebook** (`notebooks/`) is exploratory research only — see
+the note in its first cell and `DEPLOYMENT.md`.
+
+The backend serializes one artifact (`models/churn_model.pkl`): the fitted
+sklearn `Pipeline` + chosen threshold + metadata (model name, feature names,
+training date, git commit). Inference always goes through that same
+pipeline, so training and serving cannot encode a customer differently by
+construction (Phase 1).
+
+## 🚀 Running and deploying
+
+- **Docker (recommended)** — see `DEPLOYMENT.md` for `docker compose up`,
+  individual image builds, the single-worker constraint, API-key auth, and
+  observability (`/health` fields, request logging) added in Phase 6.
+- **Local dev** — see `HANDOFF.md` §1 for the exact venv Python path, test
+  commands, and how to run the API/frontend dev servers directly.
 
 ## ⚙️ Installation & Setup
 

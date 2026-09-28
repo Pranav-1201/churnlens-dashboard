@@ -1,0 +1,26 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-unknown}
+    # CHURNLENS_API_KEY: uncomment and set to enable auth on /run-pipeline
+    # and /upload (Phase 6.2). Unset = unauthenticated, dev-friendly default.
+    # environment:
+    #   CHURNLENS_API_KEY: change-me
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

@@ -16,18 +16,21 @@ import json
 import logging
 import os
 import threading
+import time
 import traceback
 import sys
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
 import sklearn
 
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from churn_intel import jobs as job_store
+from churn_intel.auth import require_api_key
 from churn_intel.config import DEMO_CSV_PATH
 from churn_intel.costs import cost_sensitivity_curve, cost_threshold_curve
 from churn_intel.inference import predict as run_predict
@@ -39,6 +42,17 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
 logger = logging.getLogger("churnlens.api")
+
+# App build identity: baked in at image build time (see backend/Dockerfile
+# and the CI docker job); "unknown" for a bare `uvicorn main:app` dev run.
+APP_GIT_COMMIT = os.environ.get("GIT_SHA", "unknown")
+
+if not os.environ.get("CHURNLENS_API_KEY"):
+    logger.warning(
+        "CHURNLENS_API_KEY is not set -- /run-pipeline and /upload are "
+        "UNAUTHENTICATED. Set CHURNLENS_API_KEY before deploying anywhere "
+        "reachable outside localhost (Phase 6.2)."
+    )
 
 # ──────────────────────────────────────────────
 # App setup
@@ -52,6 +66,21 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ──────────────────────────────────────────────
+# Request logging (Phase 6.3)
+# ──────────────────────────────────────────────
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    start = time.monotonic()
+    response = await call_next(request)
+    duration_ms = (time.monotonic() - start) * 1000
+    logger.info(
+        "%s %s -> %d (%.1fms)",
+        request.method, request.url.path, response.status_code, duration_ms,
+    )
+    return response
 
 # Paths: DEMO_CSV_PATH comes from config.yaml, resolved relative to the config
 # file rather than hardcoded to one machine's drive layout.
@@ -121,21 +150,39 @@ def health():
         _, _, meta = load_artifact()
         feature_count = len(meta.get("feature_names", []))
         model_name = meta.get("model_name")
+        artifact_git_commit = meta.get("git_commit")
+        trained_at = meta.get("trained_at")
+        artifact_age_seconds = None
+        if trained_at:
+            try:
+                trained_dt = datetime.fromisoformat(trained_at)
+                if trained_dt.tzinfo is None:
+                    trained_dt = trained_dt.replace(tzinfo=timezone.utc)
+                artifact_age_seconds = (
+                    datetime.now(timezone.utc) - trained_dt
+                ).total_seconds()
+            except ValueError:
+                pass  # unparseable trained_at is reported as null, not a 500
     except Exception:
         feature_count, model_name = 0, None
+        artifact_git_commit, trained_at, artifact_age_seconds = None, None, None
     return {
         "status": "ok",
         "sklearn_version": sklearn.__version__,
         "python": sys.version.split()[0],
         "feature_count": feature_count,
         "model_name": model_name,
+        "app_git_commit": APP_GIT_COMMIT,
+        "artifact_git_commit": artifact_git_commit,
+        "artifact_trained_at": trained_at,
+        "artifact_age_seconds": artifact_age_seconds,
     }
 
 
 # ──────────────────────────────────────────────
 # RUN PIPELINE
 # ──────────────────────────────────────────────
-@app.post("/run-pipeline")
+@app.post("/run-pipeline", dependencies=[Depends(require_api_key)])
 async def run_pipeline_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(None),
@@ -340,7 +387,7 @@ def eda():
 # ──────────────────────────────────────────────
 # UPLOAD (from old file — useful for validation)
 # ──────────────────────────────────────────────
-@app.post("/upload")
+@app.post("/upload", dependencies=[Depends(require_api_key)])
 async def upload_dataset(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "Only CSV supported")

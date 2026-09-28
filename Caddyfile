@@ -1,0 +1,13 @@
+:80 {
+	# Static SPA build (Vite/React). Client-side routes fall back to index.html.
+	root * /usr/share/caddy
+	encode gzip
+	try_files {path} /index.html
+	file_server
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
