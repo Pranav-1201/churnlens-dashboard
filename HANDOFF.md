@@ -11,7 +11,7 @@ ChurnLens is a full-stack Telco churn app: **FastAPI backend (`backend/`) + Reac
 - Phases 1 and 2 merged via PR #1 (`4856d3bb`). **Phases 3 to 5 merged via PR #2** (`294631b6`, from branch `phase3-restructure`; CI green).
 - Phase 3: `churn_intel` package, `config.yaml`, broader tests. Phase 4: CORS fix, no traceback leak, honest 202, pandas 3 warnings, `mockData.ts` deleted. Phase 5: pinned and split requirements, CI, retrained artifact and six flat shims deleted.
 - **Phase 6 (this session, branch `phase6-deployment`, commits `3dbba30`/`9146d79`):** backend/frontend Dockerfiles + compose + CI docker-build/smoke-test job; `CHURNLENS_API_KEY` auth on `/run-pipeline`/`/upload`; request-logging middleware; `/health` now reports `app_git_commit`/`artifact_git_commit`/`artifact_trained_at`/`artifact_age_seconds`; a CatBoost-background-thread-deadlock re-test (see section 4a — **not conclusively resolved, read the caveat**); `DEPLOYMENT.md`; notebook marked exploratory. See `DEPLOYMENT.md` for details.
-- **Suite: 112 passed, 1 deselected** (local 2026-09-24, Python 3.11.9). Not yet re-measured on CI for Phase 6 (branch unpushed).
+- **Suite: 112 passed, 1 deselected** (local 2026-09-24, Python 3.11.9). PR #3's CI `test` job passes on the head commit; the test count itself was measured locally, not read from the CI log.
 - **This machine was reset since the last session** (new Windows install, new user profile) — the venv, node_modules, and Python 3.11 itself were gone and were rebuilt/reinstalled this session; see section 4a.
 
 **Read first:** `AUDIT.md`, `README.md`, `DEPLOYMENT.md`, this file. Project memory: `churnlens-project-state.md`. The external roadmap file (`E:\Projects and Research papers\...\IMPROVEMENT_PLAN.md`) **no longer exists on this machine** (the `E:` drive is gone post-reset) — Phase 6's scope below was carried forward from this file's own section 4, not re-read from that file.
@@ -24,7 +24,7 @@ ChurnLens is a full-stack Telco churn app: **FastAPI backend (`backend/`) + Reac
 
 ```bash
 # Fast suite (the ~13-min train-the-zoo test is marked slow and deselected by default)
-venv/Scripts/python.exe -m pytest -q                        # 101 passed, 1 deselected
+venv/Scripts/python.exe -m pytest -q                        # 112 passed, 1 deselected (as of Phase 6)
 venv/Scripts/python.exe -m pytest --cov=churn_intel         # adds per-module coverage
 venv/Scripts/python.exe -m pytest -m slow                   # the end-to-end train test only
 
@@ -79,14 +79,14 @@ npm run dev
 
 ## 4. Phase 6 (deployment) — done this session
 
-All four rows from the old plan are done on branch `phase6-deployment` (not yet pushed — see 4a):
+All four rows from the old plan are done on branch `phase6-deployment` (pushed as PR #3, CI green, awaiting merge — see 4a):
 
 1. **6.1 Containerize:** `backend/Dockerfile` (installs from `requirements.txt`, not the dev file; `--workers 1`; non-root), `.dockerignore`, `Dockerfile.frontend` (Vite build served by Caddy, `VITE_API_BASE_URL` as a build ARG), `docker-compose.yml`. Verified via a new CI `docker` job (build both images, smoke-test `/health` and static serving) — **not yet verified on a machine that can run Docker directly** (none available this session either; see 4a).
 2. **6.2 Serving decisions:** documented in `DEPLOYMENT.md` §3 (single worker, why). `CHURNLENS_API_KEY` header auth on `/run-pipeline`/`/upload` (`churn_intel/auth.py`, `tests/test_auth.py`, 8 tests). CatBoost background-thread deadlock re-tested (`backend/diagnostics/catboost_thread_check.py` + new CI `catboost-thread-check` job) — **did not reproduce on Windows or on the Linux CI runner** (PR #3, run `36028099260`, 0.2s, `python=3.11.16, platform=linux`); real evidence for the tested repro pattern, not proof the original observation was wrong under real production load — see `DEPLOYMENT.md` §3.
 3. **6.3 Observability:** request-logging middleware; `/health` adds `app_git_commit`, `artifact_git_commit`, `artifact_trained_at`, `artifact_age_seconds` (`tests/test_health.py`, 3 tests).
 4. **6.4 Docs:** `DEPLOYMENT.md` (new); `README.md` architecture/deploy section; notebook's first cell now states it's exploratory-only.
 
-**Coverage** (CI, 2026-09-20, pre-Phase-6): TOTAL 73%. Remaining gaps are mostly by design: `pipeline.py` and `modeling.py` (OOF loop, SHAP) are exercised only by the slow end-to-end test; `inference.py` SHAP path. Not re-measured for Phase 6's additions (branch unpushed, no CI run yet).
+**Coverage** (CI, 2026-09-20, pre-Phase-6): TOTAL 73%. Remaining gaps are mostly by design: `pipeline.py` and `modeling.py` (OOF loop, SHAP) are exercised only by the slow end-to-end test; `inference.py` SHAP path. Not re-measured for Phase 6's additions (PR #3's CI ran the suite but coverage was not recorded here).
 
 **Mutation-testing method** (used for the item 7 tests): plant one bug per run into a production module, run only that module's tests, restore the original bytes in a `finally` block, then confirm `git diff backend/` is clean. A new test only counts once it has been watched failing.
 
