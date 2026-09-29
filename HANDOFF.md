@@ -14,7 +14,7 @@ ChurnLens is a full-stack Telco churn app: **FastAPI backend (`backend/`) + Reac
 - **Suite: 112 passed, 1 deselected** (local 2026-09-24, Python 3.11.9). PR #3's CI `test` job passes on the head commit; the test count itself was measured locally, not read from the CI log.
 - **This machine was reset since the last session** (new Windows install, new user profile) — the venv, node_modules, and Python 3.11 itself were gone and were rebuilt/reinstalled this session; see section 4a.
 
-**Read first:** `AUDIT.md`, `README.md`, `DEPLOYMENT.md`, this file. Project memory: `churnlens-project-state.md`. The external roadmap file (`E:\Projects and Research papers\...\IMPROVEMENT_PLAN.md`) **no longer exists on this machine** (the `E:` drive is gone post-reset) — Phase 6's scope below was carried forward from this file's own section 4, not re-read from that file.
+**Read first:** `CLAUDE.md`, this file, `docs/CONSTRAINTS.md`, `docs/ARCHITECTURE.md`, then `AUDIT.md`, `README.md`, `DEPLOYMENT.md`. Project memory: `churnlens-project-state.md`. The external roadmap file (`E:\Projects and Research papers\...\IMPROVEMENT_PLAN.md`) **no longer exists on this machine** (the `E:` drive is gone post-reset) — Phase 6's scope below was carried forward from this file's own section 4, not re-read from that file.
 
 ---
 
@@ -150,3 +150,13 @@ Resolved: CORS wildcard, hardcoded demo path, `mockData.ts`, pandas warnings, tr
 - **Retired 2026-09-16:** item 6's schema tests had only been seen passing. They were run against the real pre-item-6 `CustomerInput` from `ce586966^`: all 5 bad-categorical cases and the 422 endpoint test fail against it. The tenure and charge range tests still pass there, because those limits already existed; they were never item-6 regression tests.
 - **Retired 2026-09-20:** the dependency pins were verified in a clean install on the CI Ubuntu runner (101 passed). Provenance caveat: see section 5, item 4.
 - **Still open:** `IMPROVEMENT_PLAN.md` 3.4 specified fallback defaults and YAML hyperparameters; the user chose hard-fail and inline hyperparameters instead. The plan file now records that decision.
+
+---
+
+## 9. Session log (5-line handoff per session; newest first)
+
+**2026-09-29 — model: `claude-sonnet-5-5` (Claude Code).**
+- Did: PR #3 (Phase 6) merged, CI green on `main` (`8155402b`); ran a full audit (results kept outside this public repo) and added the AI-collaboration documents: `CLAUDE.md`, `docs/ARCHITECTURE.md`, `FLOW.md`, `DECISIONS.md`, `CONSTRAINTS.md`, `TEST_CHECKLIST.md`, `ROLLBACK.md`, `traces/README.md`.
+- Left: nothing from Phases 1-6; a new roadmap (CI for the frontend, deploy blockers, honesty fixes, methodology, hosting) exists outside the repo and needs the maintainer's go-ahead per phase.
+- Watch out: the new docs are uncommitted until asked; README result tables use the old 10,000/500 cost basis; this machine runs low on RAM (run heavy jobs one at a time).
+- Model pin: earlier phases' models were not recorded; from now on note the model here and in `docs/DECISIONS.md`.
