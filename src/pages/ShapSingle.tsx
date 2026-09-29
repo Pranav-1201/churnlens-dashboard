@@ -13,7 +13,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
-import { predictChurn, localPredict } from "@/services/api";
+import { predictChurn } from "@/services/api";
 import { usePipelineStore } from "@/stores/pipelineStore";
 import { toast } from "sonner";
 import { Loader2, AlertTriangle, Shield } from "lucide-react";
@@ -22,7 +22,7 @@ import { FEATURE_OPTIONS, DEFAULT_CUSTOMER_FEATURES } from "@/types/api";
 import { CHART_COLORS } from "@/constants/chartColors";
 
 export default function ShapSingle() {
-  const { currentThreshold, backendConnected } = usePipelineStore();
+  const { currentThreshold } = usePipelineStore();
 
   const [features, setFeatures] = useState<CustomerInput>({
     gender: DEFAULT_CUSTOMER_FEATURES.gender,
@@ -57,19 +57,12 @@ export default function ShapSingle() {
       const res = await predictChurn(f);
       setResult(res);
     } catch {
-      // Fallback to local prediction if backend is unavailable
-      const prob = localPredict(f);
-      setResult({
-        probability: prob,
-        prediction: prob >= currentThreshold ? 1 : 0,
-        risk_level: prob >= currentThreshold ? "High" : "Low",
-        threshold_used: currentThreshold,
-        shap_values: {},
-      });
+      // Never invent a score: with no backend there is no prediction to show.
+      setResult(null);
     } finally {
       setLoading(false);
     }
-  }, [currentThreshold]);
+  }, []);
 
   useEffect(() => {
     runPrediction(features);
@@ -179,7 +172,7 @@ export default function ShapSingle() {
               {loading ? (
                 <Loader2 className="animate-spin mx-auto w-12 h-12" />
               ) : (
-                `${(prob * 100).toFixed(1)}%`
+                result ? `${(prob * 100).toFixed(1)}%` : "—"
               )}
             </div>
 
@@ -192,8 +185,12 @@ export default function ShapSingle() {
               />
             </div>
 
-            <div className={`mt-3 text-xl font-bold ${isHighRisk ? "text-destructive" : "text-success"}`}>
-              {isHighRisk ? (
+            <div className={`mt-3 text-xl font-bold ${!result ? "text-muted-foreground" : isHighRisk ? "text-destructive" : "text-success"}`}>
+              {!result ? (
+                <span className="flex items-center justify-center gap-2">
+                  {loading ? "Predicting…" : "Prediction unavailable: the backend could not be reached"}
+                </span>
+              ) : isHighRisk ? (
                 <span className="flex items-center justify-center gap-2">
                   <AlertTriangle className="w-5 h-5" /> HIGH RISK
                 </span>
@@ -205,7 +202,7 @@ export default function ShapSingle() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-2">
-              Threshold: {currentThreshold} | {backendConnected ? "Backend prediction" : "Local fallback"}
+              Threshold: {currentThreshold}
             </p>
           </div>
 
