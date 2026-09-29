@@ -36,11 +36,22 @@ export interface PipelineResults {
     importance: number;
   }[];
 
-  customer_shap: any[];
+  customer_shap: CustomerShapRow[];
 
   dataset_info: DatasetInfo;
 
   eda: EDAInfo; // ✅ ADD THIS (THIS FIXES EVERYTHING)
+}
+
+/** One customer's SHAP explanation as produced by backend pipeline.run_pipeline. */
+export interface CustomerShapRow {
+  index: number;
+  customer: Record<string, string | number | boolean | null>;
+  probability: number;
+  prediction: number;
+  risk_level: string;
+  threshold_used: number;
+  shap_values: Record<string, number>;
 }
 
 export interface PredictionResponse {

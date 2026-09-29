@@ -20,6 +20,7 @@ catboost_info/
 
 node_modules/
 dist/
+*.tsbuildinfo
 *.pt
 notebooks/models/
 backend/catboost_info/

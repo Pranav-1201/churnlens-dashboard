@@ -105,3 +105,62 @@ jobs:
 
       - name: Run CatBoost background-thread check (60s timeout)
         run: python backend/diagnostics/catboost_thread_check.py
+
+  frontend:
+    # Roadmap C1: the dashboard's lint, type check, unit tests and production build
+    # were previously never run in CI (only inside the Docker build, which skips them).
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint first-party sources
+        # Scoped to src/: a root-level lint also walks vendored directories.
+        run: npx eslint src
+
+      - name: Type check (and prove it compiled real files)
+        run: |
+          npx tsc -p tsconfig.app.json --noEmit --listFiles > /tmp/tsc-files.txt
+          n=$(grep -vc node_modules /tmp/tsc-files.txt)
+          echo "first-party files compiled: $n"
+          test "$n" -gt 50
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  audit:
+    # Roadmap C2. Informational for now: the first run found high/critical advisories that need
+    # triage (see DEPLOYMENT.md, section 6). Remove continue-on-error once they are resolved.
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: npm audit (high and above)
+        run: npm audit --audit-level=high
+
+      - name: pip-audit (runtime requirements)
+        if: always()
+        run: |
+          python -m pip install pip-audit
+          pip-audit -r requirements.txt

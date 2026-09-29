@@ -39,7 +39,7 @@ function backendCurve(costFn: number, costFp: number) {
 
 /** Mock the network layer: /threshold-curve echoes the requested costs. */
 function mockBackend() {
-  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+  return vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
     const params = new URL(url, "http://localhost").searchParams;
     const costFn = Number(params.get("cost_fn") ?? 10000);

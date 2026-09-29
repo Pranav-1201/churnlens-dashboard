@@ -31,7 +31,7 @@ function fakeCurve(costFn: number, costFp: number): ThresholdCurveResponse {
 
 function mockFetchCapturingUrl() {
   const urls: string[] = [];
-  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: any) => {
+  const spy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
     const params = new URL(url, "http://localhost").searchParams;
