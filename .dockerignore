@@ -17,6 +17,9 @@ dist/
 notebooks/.ipynb_checkpoints/
 backend/catboost_info/
 catboost_info/
+# Runtime state written by a local pipeline run; never bake it into an image.
+# (models/results_snapshot.json IS meant to ship: it is the committed, read-only results.)
+models/last_run.json
 *.log
 .env
 .env.*
