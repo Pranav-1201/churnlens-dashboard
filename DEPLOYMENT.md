@@ -147,3 +147,21 @@ thread.
   queue.
 - TLS/reverse proxy, secrets management for CHURNLENS_API_KEY, and actual
   hosting target (not decided here -- infra-specific).
+
+---
+
+## 6. Environment variables and dependency advisories (CI foundation)
+
+Every environment variable the code reads (checked in source 2026-09-29):
+
+| Variable | Read by | Meaning |
+|---|---|---|
+| `CHURNLENS_API_KEY` | `backend/churn_intel/auth.py`, `backend/main.py` | Shared secret for `/run-pipeline` and `/upload` (header `X-API-Key`). Unset = open. |
+| `GIT_SHA` | `backend/main.py` | Commit baked into the image; reported by `/health` as `app_git_commit`. |
+| `CHURN_CONFIG` | `backend/churn_intel/config.py` | Optional path to an alternative `backend/config.yaml`. |
+| `VITE_API_BASE_URL` | `src/services/api.ts` | API base URL, baked into the frontend bundle at build time (default `http://localhost:8000`). |
+| `VITE_API_URL` | `src/services/api.ts` | Alias read before `VITE_API_BASE_URL`; normally unset. |
+
+There is no `.env.example` file: the sandbox this was written in refused to create one. Copy the table into a `.env` (git-ignored) as needed.
+
+CI now also runs a `frontend` job (lint of `src`, type check with a compiled-file count, unit tests, production build) and an informational `audit` job. On 2026-09-29 `npm audit` reported 21 advisories (1 critical in `vitest`, 10 high, including the runtime dependency `axios`); most have a fix available. They need triage in a dependency-refresh PR before the audit job can be made blocking. `pip-audit` had not been run at that time. Dependabot is configured (`.github/dependabot.yml`) but ignores the scikit-learn, catboost, xgboost, lightgbm, numpy and pandas pins, because `models/churn_model.pkl` was trained with them.

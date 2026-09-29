@@ -1,0 +1,29 @@
+# Weekly dependency PRs. Opened as PRs to main, so the normal CI gates run on each one.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+    ignore:
+      # models/churn_model.pkl was trained with these exact versions and pickles their classes.
+      # Bump them only together with a retrain (see docs/ROLLBACK.md, section 2).
+      - dependency-name: "scikit-learn"
+      - dependency-name: "catboost"
+      - dependency-name: "xgboost"
+      - dependency-name: "lightgbm"
+      - dependency-name: "numpy"
+      - dependency-name: "pandas"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 2

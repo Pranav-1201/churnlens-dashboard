@@ -27,7 +27,7 @@ const SLUG_TO_NAMES: Record<string, string[]> = {
   'stacking':       ['Stacked Model', 'Stacking Model', 'Stacking', 'StackedModel'],
 };
 
-function findModelBySlug(models: any[], slug: string) {
+function findModelBySlug<T extends { name: string }>(models: T[], slug: string): T | undefined {
   const candidates = SLUG_TO_NAMES[slug] ?? [];
   for (const name of candidates) {
     const found = models.find((m) => m.name === name);
@@ -93,7 +93,7 @@ export default function ModelPage() {
         <AlertTriangle className="w-8 h-8 text-yellow-500" />
         <p className="text-sm font-medium">{slugLabel}</p>
         <p className="text-xs">This model was not included in the current pipeline run.</p>
-        <p className="text-xs">Available models: {results.models.map((m: any) => m.name).join(', ')}</p>
+        <p className="text-xs">Available models: {results.models.map((m: { name: string }) => m.name).join(', ')}</p>
       </div>
     );
   }

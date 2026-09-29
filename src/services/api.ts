@@ -9,7 +9,7 @@
  */
 
 import axios, { AxiosInstance, AxiosError } from "axios";
-import { ModelMetric } from "@/types/api";
+import { CustomerShapRow, ModelMetric } from "@/types/api";
 
 // ============================================
 // BASE CONFIG (AXIOS + FETCH SUPPORT)
@@ -36,7 +36,7 @@ export function setBaseUrl(url: string) {
 api.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
-    const config = error.config as any;
+    const config = error.config as (NonNullable<AxiosError["config"]> & { _retryCount?: number }) | undefined;
     if (!config) return Promise.reject(error);
 
     config._retryCount = config._retryCount || 0;
@@ -195,7 +195,7 @@ export interface PipelineResults {
     importance: number;
   }[];
 
-  customer_shap: any[];
+  customer_shap: CustomerShapRow[];
 
   dataset_info: DatasetInfo;
 
