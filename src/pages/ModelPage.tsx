@@ -42,30 +42,9 @@ function findModelBySlug<T extends { name: string }>(models: T[], slug: string):
   );
 }
 
-// ── Fake ROC/PR curve from AUC value ─────────────────
-// Generates a smooth curve shape parameterised by AUC so the
-// chart is visually meaningful even without the raw threshold sweep.
-function makeRocCurve(auc: number, points = 40) {
-  const data = [];
-  for (let i = 0; i <= points; i++) {
-    const fpr = i / points;
-    // Approximate TPR for given AUC using a simple power model
-    const tpr = Math.pow(fpr, Math.max(0.01, (1 - auc) / auc));
-    data.push({ fpr: +fpr.toFixed(3), tpr: +Math.min(tpr, 1).toFixed(3) });
-  }
-  return data;
-}
-
-function makePrCurve(pr_auc: number, churn_rate = 0.265, points = 40) {
-  const data = [];
-  for (let i = 0; i <= points; i++) {
-    const recall = i / points;
-    // Precision declines from ~1 toward baseline as recall increases
-    const precision = churn_rate + (1 - churn_rate) * Math.pow(1 - recall, 1 / Math.max(pr_auc, 0.01) - 1 + 0.01);
-    data.push({ recall: +recall.toFixed(3), precision: +Math.min(Math.max(precision, 0), 1).toFixed(3) });
-  }
-  return data;
-}
+// ROC and PR curves are NOT drawn. The backend reports each model's ROC-AUC and PR-AUC but
+// not the per-threshold points, and a curve generated from the AUC alone would be a made-up
+// chart shown as a result. Add the points to the pipeline results before drawing them.
 
 export default function ModelPage() {
   const { modelId } = useParams();
@@ -98,9 +77,6 @@ export default function ModelPage() {
     );
   }
 
-  const rocData = makeRocCurve(model.roc_auc);
-  const prData  = makePrCurve(model.pr_auc ?? 0.5, results.dataset_info?.churn_rate ?? 0.265);
-
   return (
     <div className="space-y-6">
 
@@ -128,32 +104,14 @@ export default function ModelPage() {
         </ChartCard>
       )}
 
-      {/* ROC + PR curves */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChartCard title="ROC Curve" subtitle={`AUC = ${model.roc_auc.toFixed(4)}`}>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={rocData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="fpr" label={{ value: 'FPR', position: 'insideBottom', offset: -4 }} tickFormatter={(v) => v.toFixed(1)} />
-              <YAxis label={{ value: 'TPR', angle: -90, position: 'insideLeft' }} />
-              <Tooltip formatter={(v: number) => v.toFixed(3)} />
-              <Line type="monotone" dataKey="tpr" stroke={CHART_COLORS[0]} dot={false} strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-
-        <ChartCard title="PR Curve" subtitle={`PR-AUC = ${model.pr_auc?.toFixed(4) ?? 'N/A'}`}>
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={prData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="recall" label={{ value: 'Recall', position: 'insideBottom', offset: -4 }} tickFormatter={(v) => v.toFixed(1)} />
-              <YAxis label={{ value: 'Precision', angle: -90, position: 'insideLeft' }} />
-              <Tooltip formatter={(v: number) => v.toFixed(3)} />
-              <Line type="monotone" dataKey="precision" stroke={CHART_COLORS[2]} dot={false} strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </ChartCard>
-      </div>
+      {/* ROC + PR curves: intentionally not drawn until the backend returns real points */}
+      <ChartCard title="ROC and PR curves" subtitle="Not available">
+        <p className="text-sm text-muted-foreground">
+          The backend reports this model&apos;s ROC-AUC ({model.roc_auc.toFixed(4)}) and PR-AUC (
+          {model.pr_auc?.toFixed(4) ?? 'N/A'}) but not the per-threshold points, so no curve is
+          drawn. A curve generated from the AUC alone would be invented.
+        </p>
+      </ChartCard>
 
       {/* Cross Validation */}
       {model.cv_scores && model.cv_scores.length > 0 && (
