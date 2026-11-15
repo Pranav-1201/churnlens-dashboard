@@ -48,11 +48,12 @@ def test_health_handles_missing_artifact_gracefully(client, monkeypatch):
     monkeypatch.setattr(artifacts, "load_artifact", boom)
     res = client.get("/health")
 
-    assert res.status_code == 200
+    # Roadmap B5: a model that cannot load is UNHEALTHY (503), not "ok with null fields".
+    # Still graceful: a JSON body, no crash, and no invented model metadata.
+    assert res.status_code == 503
     body = res.json()
-    assert body["model_name"] is None
-    assert body["artifact_git_commit"] is None
-    assert body["artifact_age_seconds"] is None
+    assert body["status"] == "unavailable"
+    assert "model_name" not in body
 
 
 def test_health_reports_app_git_commit_key(client):

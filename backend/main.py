@@ -1,14 +1,11 @@
 """
-main.py — FINAL MERGED VERSION (Claude + Your Stable Code)
+main.py — the ChurnLens HTTP API.
 
-Features:
-- Async pipeline execution
-- Job tracking
-- SHAP (single + global)
-- EDA
-- Metrics from pipeline
-- File upload support
-- Stable /predict endpoint (unchanged logic)
+Serving:  /predict (single-customer score + SHAP), /health (readiness), /livez (liveness),
+          read-only chart endpoints backed by the last pipeline result (/metrics, /eda,
+          /shap*, /threshold-curve, /cost-sensitivity).
+Training: /run-pipeline, /pipeline-status/{id}, /results/{id}, /upload — disabled when
+          the deployment is read-only (see churn_intel/settings.py and DEPLOYMENT.md).
 """
 
 import io
@@ -25,12 +22,13 @@ import numpy as np
 import pandas as pd
 import sklearn
 
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from churn_intel import jobs as job_store
-from churn_intel.auth import require_api_key
+from churn_intel import settings
+from churn_intel.auth import require_api_key, require_writable
 from churn_intel.config import DEMO_CSV_PATH
 from churn_intel.costs import cost_sensitivity_curve, cost_threshold_curve
 from churn_intel.inference import predict as run_predict
@@ -57,11 +55,18 @@ if not os.environ.get("CHURNLENS_API_KEY"):
 # ──────────────────────────────────────────────
 # App setup
 # ──────────────────────────────────────────────
-app = FastAPI(title="ChurnLens API", version="3.0.0")
+_docs_on = settings.docs_enabled()  # /docs and /openapi.json are hidden in production
+app = FastAPI(
+    title="ChurnLens API",
+    version="3.0.0",
+    docs_url="/docs" if _docs_on else None,
+    redoc_url="/redoc" if _docs_on else None,
+    openapi_url="/openapi.json" if _docs_on else None,
+)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_origins=settings.cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -85,6 +90,10 @@ async def log_requests(request: Request, call_next):
 # Paths: DEMO_CSV_PATH comes from config.yaml, resolved relative to the config
 # file rather than hardcoded to one machine's drive layout.
 
+# Upper bound for user-supplied cost parameters. Realistic per-customer costs are tens to
+# thousands; without a bound, 1e308 overflows inside the cost curve and returned a 500.
+MAX_COST = 1e9
+
 # Cache last pipeline results
 _last_results: dict = {}
 _results_lock = threading.Lock()
@@ -95,7 +104,16 @@ _LAST_RUN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                               "..", "models", "last_run.json")
 
 
+# Committed, read-only results of a full pipeline run that matches the deployed model
+# artifact (see DEPLOYMENT.md). It lets a fresh deployment show the dashboard without
+# running a multi-GB training job; a newer last_run.json, if present, takes precedence.
+_SNAPSHOT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                              "..", "models", "results_snapshot.json")
+
+
 def _persist_last_results(results: dict) -> None:
+    if settings.read_only():
+        return  # a read-only deployment never writes runtime state
     try:
         os.makedirs(os.path.dirname(_LAST_RUN_PATH), exist_ok=True)
         with open(_LAST_RUN_PATH, "w", encoding="utf-8") as f:
@@ -106,14 +124,16 @@ def _persist_last_results(results: dict) -> None:
 
 def _load_last_results() -> None:
     global _last_results
-    try:
-        if os.path.exists(_LAST_RUN_PATH):
-            with open(_LAST_RUN_PATH, "r", encoding="utf-8") as f:
-                _last_results = json.load(f)
-            logger.info("warm-start: loaded previous run from %s (model=%s)",
-                        _LAST_RUN_PATH, _last_results.get("best_model"))
-    except Exception as e:
-        logger.warning("warm-start: could not load previous run: %s", e)
+    for path, label in ((_LAST_RUN_PATH, "previous run"), (_SNAPSHOT_PATH, "committed snapshot")):
+        try:
+            if os.path.exists(path):
+                with open(path, "r", encoding="utf-8") as f:
+                    _last_results = json.load(f)
+                logger.info("warm-start: loaded %s from %s (model=%s)",
+                            label, path, _last_results.get("best_model"))
+                return
+        except Exception as e:
+            logger.warning("warm-start: could not load %s: %s", label, e)
 
 
 _load_last_results()
@@ -143,29 +163,44 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
 # ──────────────────────────────────────────────
 # Health
 # ──────────────────────────────────────────────
+@app.get("/livez")
+def livez():
+    """Liveness: the process is up. Says nothing about the model (use /health for that)."""
+    return {"status": "alive"}
+
+
 @app.get("/health")
 def health():
+    """Readiness: 200 only when the model artifact loads; 503 otherwise, so load balancers,
+    the Docker HEALTHCHECK and uptime monitors see a broken model as unhealthy."""
     try:
         from churn_intel.artifacts import load_artifact
         _, _, meta = load_artifact()
-        feature_count = len(meta.get("feature_names", []))
-        model_name = meta.get("model_name")
-        artifact_git_commit = meta.get("git_commit")
-        trained_at = meta.get("trained_at")
-        artifact_age_seconds = None
-        if trained_at:
-            try:
-                trained_dt = datetime.fromisoformat(trained_at)
-                if trained_dt.tzinfo is None:
-                    trained_dt = trained_dt.replace(tzinfo=timezone.utc)
-                artifact_age_seconds = (
-                    datetime.now(timezone.utc) - trained_dt
-                ).total_seconds()
-            except ValueError:
-                pass  # unparseable trained_at is reported as null, not a 500
-    except Exception:
-        feature_count, model_name = 0, None
-        artifact_git_commit, trained_at, artifact_age_seconds = None, None, None
+    except Exception as e:
+        logger.error("health: model artifact unavailable: %s", e)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "unavailable",
+                "detail": "model artifact could not be loaded",
+                "app_git_commit": APP_GIT_COMMIT,
+            },
+        )
+    feature_count = len(meta.get("feature_names", []))
+    model_name = meta.get("model_name")
+    artifact_git_commit = meta.get("git_commit")
+    trained_at = meta.get("trained_at")
+    artifact_age_seconds = None
+    if trained_at:
+        try:
+            trained_dt = datetime.fromisoformat(trained_at)
+            if trained_dt.tzinfo is None:
+                trained_dt = trained_dt.replace(tzinfo=timezone.utc)
+            artifact_age_seconds = (
+                datetime.now(timezone.utc) - trained_dt
+            ).total_seconds()
+        except ValueError:
+            pass  # unparseable trained_at is reported as null, not a 500
     return {
         "status": "ok",
         "sklearn_version": sklearn.__version__,
@@ -182,7 +217,17 @@ def health():
 # ──────────────────────────────────────────────
 # RUN PIPELINE
 # ──────────────────────────────────────────────
-@app.post("/run-pipeline", dependencies=[Depends(require_api_key)])
+async def _read_capped(file: UploadFile) -> bytes:
+    """Read an upload, refusing anything over CHURNLENS_MAX_UPLOAD_BYTES with 413 so a
+    single request cannot hold the whole file (or more) in memory."""
+    limit = settings.max_upload_bytes()
+    data = await file.read(limit + 1)
+    if len(data) > limit:
+        raise HTTPException(413, f"File too large (limit {limit} bytes)")
+    return data
+
+
+@app.post("/run-pipeline", dependencies=[Depends(require_writable), Depends(require_api_key)])
 async def run_pipeline_endpoint(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(None),
@@ -194,7 +239,7 @@ async def run_pipeline_endpoint(
         df = pd.read_csv(DEMO_CSV_PATH)
 
     elif file is not None:
-        contents = await file.read()
+        contents = await _read_capped(file)
         try:
             df = pd.read_csv(io.BytesIO(contents))
         except Exception as e:
@@ -258,7 +303,9 @@ def get_results(job_id: str):
 def metrics():
     with _results_lock:
         if not _last_results:
-            return JSONResponse(status_code=204, content={"detail": "Run pipeline first"})
+            # A 204 must not carry a body; sending one makes uvicorn raise
+            # "Response content longer than Content-Length" on every call.
+            return Response(status_code=204)
 
         return {
             "models": _last_results.get("models", []),
@@ -277,8 +324,8 @@ def metrics():
 # ──────────────────────────────────────────────
 @app.get("/threshold-curve")
 def threshold_curve(
-    cost_fn: float = Query(None, gt=0, description="Cost of a missed churner (false negative)"),
-    cost_fp: float = Query(None, gt=0, description="Cost of a wasted offer (false positive)"),
+    cost_fn: float = Query(None, gt=0, le=MAX_COST, description="Cost of a missed churner (false negative)"),
+    cost_fp: float = Query(None, gt=0, le=MAX_COST, description="Cost of a wasted offer (false positive)"),
 ):
     with _results_lock:
         oof = _last_results.get("validation_oof")
@@ -315,7 +362,7 @@ def threshold_curve(
 # ──────────────────────────────────────────────
 @app.get("/cost-sensitivity")
 def cost_sensitivity(
-    cost_fp: float = Query(None, gt=0, description="Fixed FP cost; FN = ratio * FP"),
+    cost_fp: float = Query(None, gt=0, le=MAX_COST, description="Fixed FP cost; FN = ratio * FP"),
 ):
     with _results_lock:
         oof = _last_results.get("validation_oof")
@@ -350,8 +397,8 @@ def shap_single(index: int):
     if not data:
         raise HTTPException(404, "Run pipeline first")
 
-    if index >= len(data):
-        raise HTTPException(404, f"Index out of range")
+    if index < 0 or index >= len(data):
+        raise HTTPException(404, "Index out of range")
 
     return data[index]
 
@@ -387,12 +434,12 @@ def eda():
 # ──────────────────────────────────────────────
 # UPLOAD (from old file — useful for validation)
 # ──────────────────────────────────────────────
-@app.post("/upload", dependencies=[Depends(require_api_key)])
+@app.post("/upload", dependencies=[Depends(require_writable), Depends(require_api_key)])
 async def upload_dataset(file: UploadFile = File(...)):
     if not file.filename.endswith(".csv"):
         raise HTTPException(400, "Only CSV supported")
 
-    contents = await file.read()
+    contents = await _read_capped(file)
 
     try:
         df = pd.read_csv(io.StringIO(contents.decode("utf-8")))
@@ -411,4 +458,4 @@ async def upload_dataset(file: UploadFile = File(...)):
 # ──────────────────────────────────────────────
 @app.post("/predict", response_model=PredictionResponse)
 def predict(request: CustomerInput):
-    return run_predict(request.dict())
+    return run_predict(request.model_dump())
