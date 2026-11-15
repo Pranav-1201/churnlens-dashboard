@@ -371,22 +371,26 @@ export const checkHealth = async (): Promise<{ status: string }> => {
   }
 };
 
-// ============================================
-// LOCAL FALLBACK
-// ============================================
+/** What GET /health reports about the running backend (see backend/main.py). */
+export interface HealthResponse {
+  status: string;
+  sklearn_version: string;
+  python: string;
+  feature_count: number;
+  model_name: string | null;
+  app_git_commit: string;
+  artifact_git_commit: string | null;
+  artifact_trained_at: string | null;
+  artifact_age_seconds: number | null;
+}
 
-export const localPredict = (customer: CustomerInput): number => {
-  let score = 0.265;
+/** Full health payload. Rejects when the backend is unreachable or unhealthy (503). */
+export async function getHealth(): Promise<HealthResponse> {
+  const r = await api.get<HealthResponse>("/health");
+  return r.data;
+}
 
-  if (customer.tenure < 12) score += 0.25;
-  if (customer.MonthlyCharges > 80) score += 0.15;
-  if (customer.Contract === "Month-to-month") score += 0.2;
-  if (customer.Contract === "Two year") score -= 0.15;
-  if (customer.InternetService === "Fiber optic") score += 0.1;
-  if (customer.TechSupport === "Yes") score -= 0.08;
-  if (customer.OnlineSecurity === "Yes") score -= 0.08;
-
-  return Math.min(Math.max(score, 0.01), 0.99);
-};
+// There is deliberately no local/offline prediction: a client-side formula would be a
+// made-up score shown as a model result. Without the backend the UI says so.
 
 export default api;

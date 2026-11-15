@@ -1,53 +1,87 @@
-import { MetricCard, ChartCard } from '@/components/DashboardCards';
-import { Cpu, CheckCircle, AlertTriangle } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
+import { ChartCard } from '@/components/DashboardCards';
+import { getHealth } from '@/services/api';
+import { AlertTriangle, CheckCircle, Loader2 } from 'lucide-react';
 
+function formatAge(seconds: number | null): string {
+  if (seconds == null) return 'unknown';
+  const days = Math.floor(seconds / 86400);
+  if (days >= 1) return `${days} day${days === 1 ? '' : 's'}`;
+  const hours = Math.floor(seconds / 3600);
+  return `${hours} hour${hours === 1 ? '' : 's'}`;
+}
+
+/** Every value on this page is reported by the running backend's GET /health; none is hard-coded. */
 export default function SystemCheck() {
-  return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="metric-card">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-warning/10"><AlertTriangle className="w-5 h-5 text-warning" /></div>
-            <div>
-              <p className="text-sm font-medium text-foreground">PyTorch GPU</p>
-              <span className="status-warning">Not Available</span>
-            </div>
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['health'],
+    queryFn: getHealth,
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin" /> Asking the backend&hellip;
+      </div>
+    );
+  }
+
+  if (isError || !data) {
+    return (
+      <div className="metric-card">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-lg bg-warning/10"><AlertTriangle className="w-5 h-5 text-warning" /></div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Backend not available</p>
+            <p className="text-xs text-muted-foreground">
+              GET /health did not answer, or answered 503 because the model artifact could not be
+              loaded. Start the API (see the README) and reload this page.
+            </p>
           </div>
         </div>
-        <div className="metric-card">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10"><Cpu className="w-5 h-5 text-primary" /></div>
-            <div>
-              <p className="text-sm font-medium text-foreground">Device</p>
-              <span className="text-foreground font-medium">CPU</span>
-            </div>
+      </div>
+    );
+  }
+
+  const healthy = data.status === 'ok';
+  const rows: [string, string][] = [
+    ['Status', data.status],
+    ['Model', data.model_name ?? 'unknown'],
+    ['Features', String(data.feature_count)],
+    ['Python', data.python],
+    ['scikit-learn', data.sklearn_version],
+    ['API build (git commit)', data.app_git_commit],
+    ['Model artifact (git commit)', data.artifact_git_commit ?? 'unknown'],
+    ['Model trained at', data.artifact_trained_at ?? 'unknown'],
+    ['Model age', formatAge(data.artifact_age_seconds)],
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="metric-card">
+        <div className="flex items-center gap-3">
+          <div className={`p-2 rounded-lg ${healthy ? 'bg-primary/10' : 'bg-warning/10'}`}>
+            {healthy
+              ? <CheckCircle className="w-5 h-5 text-primary" />
+              : <AlertTriangle className="w-5 h-5 text-warning" />}
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Backend</p>
+            <span className={healthy ? 'status-success' : 'status-warning'}>
+              {healthy ? 'Healthy' : data.status}
+            </span>
           </div>
         </div>
       </div>
 
-      <ChartCard title="Environment Specifications">
+      <ChartCard title="Backend environment" subtitle="Reported live by GET /health">
         <table className="w-full text-sm">
           <tbody>
-            {[
-              ["Python", "3.10.12", "success"],
-              ["PyTorch", "2.1.0", "success"],
-              ["scikit-learn", "1.3.2", "success"],
-              ["XGBoost", "2.0.2", "success"],
-              ["LightGBM", "4.1.0", "success"],
-              ["CatBoost", "1.2.2", "success"],
-              ["CUDA", "Not Available", "warning"],
-              ["NumPy", "1.26.2", "success"],
-              ["Pandas", "2.1.3", "success"],
-              ["SHAP", "0.43.0", "success"],
-            ].map(([label, value, status]) => (
+            {rows.map(([label, value]) => (
               <tr key={label} className="border-b border-border/50">
                 <td className="py-2.5 text-muted-foreground">{label}</td>
-                <td className="py-2.5 text-foreground font-medium">{value}</td>
-                <td className="py-2.5 text-right">
-                  <span className={status === 'success' ? 'status-success' : 'status-warning'}>
-                    {status === 'success' ? '✓ OK' : '⚠ Warning'}
-                  </span>
-                </td>
+                <td className="py-2.5 text-foreground font-medium break-all">{value}</td>
               </tr>
             ))}
           </tbody>

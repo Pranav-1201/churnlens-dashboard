@@ -70,7 +70,7 @@ export default function SettingsPage() {
             {backendConnected ? (
               <span className="flex items-center gap-1 text-success"><Wifi className="w-3 h-3" /> Connected</span>
             ) : (
-              <span className="flex items-center gap-1 text-warning"><WifiOff className="w-3 h-3" /> Local mode (mock data fallback)</span>
+              <span className="flex items-center gap-1 text-warning"><WifiOff className="w-3 h-3" /> Backend not connected</span>
             )}
           </div>
         </div>

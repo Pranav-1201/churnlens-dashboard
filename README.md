@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.10-blue)
 ![ML](https://img.shields.io/badge/Machine%20Learning-End%20to%20End-green)
-![Status](https://img.shields.io/badge/Project-Production%20Ready-success)
+![Status](https://img.shields.io/badge/Project-MVP-blue)
 
 ---
 
@@ -12,7 +12,7 @@ This project is a **complete end-to-end Customer Churn Prediction system** desig
 
 Unlike traditional ML projects, this system focuses on:
 
-* 💰 Minimizing financial loss (₹)
+* 💰 Minimizing financial loss (in the dataset's own currency units)
 * 🎯 Optimizing decision thresholds
 * 🧠 Selecting models based on business impact
 
@@ -35,7 +35,7 @@ Most ML projects optimize for accuracy.
 
 The FN/FP costs are **derived from the dataset**, not guessed. The old hardcoded
 ₹10,000 / ₹500 were arbitrary magic numbers; they are now computed with a
-documented CLV formula (`derive_costs()` in `backend/pipeline.py`):
+documented CLV formula (`derive_costs()` in `backend/churn_intel/costs.py`):
 
 * **FN (missed churner)** = `avg_monthly_charges × retained_lifetime_months × gross_margin`
   — the margin on the revenue a churner would have produced over a typical
@@ -70,16 +70,21 @@ Instead of default `0.5`, the project:
 
 📉 Result (deployed model, single evaluation on the held-out test set):
 
-* Cost at default threshold 0.5: ₹1,025,500
-* Cost at the locked threshold 0.07: ₹419,500
-* 💸 Savings: **₹606,000 (59% cost reduction)**
+* Cost at default threshold 0.5: 75,439 cost units
+* Cost at the locked threshold 0.07: 32,321 cost units
+* 💸 Savings: **43,118 (57% cost reduction)**
+
+Cost units are the dataset's own currency at the derived FN 730 / FP 39 costs above (not
+rupees). Earlier revisions of this README priced the same test results at the old fixed
+10,000 / 500 costs, which is why their figures were much larger.
 
 > **A note on honesty:** earlier versions of this project tuned the threshold
-> *on the test set* and reported ₹382,500–₹392,500. That number was leaked —
-> the test set was used for model selection, threshold tuning, *and* the final
+> *on the test set* and reported a test cost 6–9% lower than the honest one (at the
+> old fixed 10,000 / 500 costs: 382,500–392,500 against 419,500). That number was
+> leaked — the test set was used for model selection, threshold tuning, *and* the final
 > report. The protocol was rebuilt (validation-only selection, one look at the
-> test set) and the corrected figure is ₹419,500. A smaller number, but one
-> that generalizes — finding and fixing this is part of the project story.
+> test set). A worse-looking number, but one that generalizes — finding and fixing
+> this is part of the project story.
 
 ### Interactive cost curve (dashboard)
 
@@ -119,13 +124,13 @@ Seven models compete (LR, Decision Tree, Random Forest, XGBoost, LightGBM,
 CatBoost, Stacking) and the winner is picked by **lowest out-of-fold
 validation cost**, not accuracy.
 
-👉 Deployed model: **CatBoost** (validation cost ₹1,618,500, threshold 0.07)
+👉 Deployed model: **CatBoost** (validation cost 125,093, threshold 0.07)
 
 The top models are statistically close — the notebook's McNemar/DeLong
 significance tests show CatBoost, XGBoost and the stacking ensemble are within
 noise of each other, and the research notebook's slightly different candidate
 pool (it adds an Optuna-tuned LR and an early-stopped XGBoost variant) selects
-XGBoost at an equivalent honest test cost (₹395,500). The deployed artifact is
+XGBoost at an equivalent honest test cost (395,500 at the old fixed 10,000 / 500 costs). The deployed artifact is
 always whatever wins the reproducible `python backend/train.py` run.
 
 ---
@@ -191,18 +196,22 @@ customer differently by construction.
 Model comparison — **validation (out-of-fold) cost**, which is what selection
 uses (per-model thresholds are also chosen on validation only):
 
-| Model                | CV ROC-AUC | Validation Cost (₹) | Status     |
-| -------------------- | ---------- | ------------------- | ---------- |
-| CatBoost             | 0.8437     | **1,618,500**       | ✅ Selected |
-| XGBoost (Calibrated) | 0.8434     | 1,642,000           | Runner-up  |
-| LightGBM             | 0.8330     | 1,658,000           | Evaluated  |
-| Stacking Ensemble    | 0.8490     | 1,662,000           | Evaluated  |
-| Logistic Regression  | 0.8476     | 1,695,000           | Evaluated  |
-| Random Forest        | 0.8395     | 1,727,000           | Evaluated  |
-| Decision Tree        | 0.8215     | 1,944,500           | Evaluated  |
+| Model                | CV ROC-AUC | Validation Cost (cost units) | Status     |
+| -------------------- | ---------- | ---------------------------- | ---------- |
+| CatBoost             | 0.8437     | **125,093**                  | ✅ Selected |
+| XGBoost (Calibrated) | 0.8434     | 126,876                      | Runner-up  |
+| LightGBM             | 0.8330     | 128,274                      | Evaluated  |
+| Stacking Ensemble    | 0.8490     | 128,836                      | Evaluated  |
+| Logistic Regression  | 0.8476     | 130,438                      | Evaluated  |
+| Random Forest        | 0.8395     | 133,056                      | Evaluated  |
+| Decision Tree        | 0.8215     | 148,321                      | Evaluated  |
+
+The cost gaps at the top are small (CatBoost leads XGBoost by 1.4%) and the
+five-fold CV ROC-AUC spread is about ±0.01, so the ranking of the leading models is
+not statistically settled.
 
 Final held-out test evaluation (performed **once**, after model + threshold
-were locked): **test ROC-AUC 0.8408, test cost ₹419,500** vs ₹1,025,500 at the
+were locked): **test ROC-AUC 0.8408, test cost 32,321** vs 75,439 at the
 default threshold.
 
 The PyTorch ANN is trained in the notebook for reference (test ROC-AUC ~0.84)
