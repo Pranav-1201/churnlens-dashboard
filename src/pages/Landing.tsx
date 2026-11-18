@@ -8,6 +8,7 @@ import { Upload, PlayCircle, ArrowRight, Loader2, Wifi, WifiOff, CheckCircle, Ci
 import { usePipelineStore } from "@/stores/pipelineStore";
 import { Button } from "@/components/ui/button";
 import { checkHealth } from "@/services/api";
+import { READ_ONLY } from "@/lib/runtime";
 import { toast } from "sonner";
 
 // ============================================
@@ -163,6 +164,7 @@ export default function Landing() {
     runDemo,
     runWithFile,
     phase,
+    resultsSource,
     isDark,
     backendConnected,
     setBackendConnected,
@@ -186,13 +188,14 @@ export default function Landing() {
       .finally(() => setChecking(false));
   }, [setBackendConnected]);
 
-  // Auto navigate on completion
+  // Auto navigate when a run started here completes. The committed snapshot also sets
+  // phase "complete" (so pages have data), but that must not pull a visitor off this page.
   useEffect(() => {
-    if (phase === "complete") {
+    if (phase === "complete" && resultsSource === "run") {
       toast.success("Pipeline completed!");
       navigate("/dashboard");
     }
-  }, [phase, navigate]);
+  }, [phase, resultsSource, navigate]);
 
   // =========================
   // HANDLERS
@@ -262,7 +265,15 @@ export default function Landing() {
         </div>
       </div>
 
+      {/* A read-only deployment cannot train or accept uploads, so offer the results instead. */}
+      {READ_ONLY && (
+        <Button size="lg" onClick={() => navigate("/dashboard")}>
+          Open the dashboard <ArrowRight className="w-4 h-4 ml-2" />
+        </Button>
+      )}
+
       {/* CARDS */}
+      {!READ_ONLY && (
       <div className="grid md:grid-cols-2 gap-6 w-full max-w-3xl">
 
         {/* Upload */}
@@ -306,13 +317,16 @@ export default function Landing() {
           </Button>
         </div>
       </div>
+      )}
 
-      <button
-        onClick={() => navigate("/dashboard")}
-        className="text-sm text-muted-foreground flex items-center gap-1"
-      >
-        Skip → Dashboard <ArrowRight className="w-3 h-3" />
-      </button>
+      {!READ_ONLY && (
+        <button
+          onClick={() => navigate("/dashboard")}
+          className="text-sm text-muted-foreground flex items-center gap-1"
+        >
+          Skip → Dashboard <ArrowRight className="w-3 h-3" />
+        </button>
+      )}
     </div>
   );
 }

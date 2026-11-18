@@ -2,8 +2,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { SkeletonChart } from "@/components/SkeletonChart";
+import { usePipelineStore } from "@/stores/pipelineStore";
 
 // Eagerly loaded (always needed)
 import Landing from "./pages/Landing";
@@ -52,10 +53,20 @@ function PageLoader() {
   );
 }
 
+/** Loads the committed results once at start, so every route (including a reload or a
+ *  pasted URL) has data without anyone having to run the pipeline first. */
+function SnapshotLoader() {
+  useEffect(() => {
+    void usePipelineStore.getState().loadSnapshot();
+  }, []);
+  return null;
+}
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
       <Sonner />
+      <SnapshotLoader />
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Landing />} />

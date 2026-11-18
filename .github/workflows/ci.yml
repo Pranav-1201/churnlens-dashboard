@@ -139,6 +139,46 @@ jobs:
       - name: Production build
         run: npm run build
 
+  e2e:
+    # Roadmap C9. Builds the frontend, starts the API in production mode (read-only, as it
+    # would be deployed) and opens every route in a real browser. Before this existed, the
+    # planned production configuration showed an empty site and no check noticed.
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install the browser
+        run: npx playwright install --with-deps chromium-headless-shell
+
+      - name: Production-mode end-to-end tests
+        run: npx playwright test
+
+      - name: Keep the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: test-results/
+          if-no-files-found: ignore
+
   audit:
     # Roadmap C2. Informational for now: the first run found high/critical advisories that need
     # triage (see DEPLOYMENT.md, section 6). Remove continue-on-error once they are resolved.

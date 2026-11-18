@@ -157,7 +157,13 @@ Resolved: CORS wildcard, hardcoded demo path, `mockData.ts`, pandas warnings, tr
 
 ## 9. Session log (5-line handoff per session; newest first)
 
-**2026-11-17 — model: `claude-sonnet-5-5` (Claude Code). Roadmap Phase 0 started on branch `phase-0/land-existing`; nothing committed yet.**
+**2026-11-18 — model: `claude-sonnet-5-5` (Claude Code). Roadmap Phase 0 landed; Phase 1 built on branch `phase-1/production-shows-product`.**
+- Did: merged PR #16 and #17, Dependabot #6, #8, #9, #10; `main` now requires `test`, `frontend`, `docker`, `catboost-thread-check`. Phase 1 (DEC-015): the browser loads the committed snapshot at start, read-only builds hide run controls, what-if trusts the API decision, route error boundary, HEAD on `/livez` and `/health`, and a production-mode Playwright suite (CI job `e2e`). That suite was red on the unmodified code (30 failed, 2 passed) and is green after (32 passed).
+- Gates this session: pytest 140 passed, 1 deselected (74% coverage); vitest 15 passed in 5 files; `tsc` exit 0, 101 files; `eslint src` 0 errors, 7 warnings; build OK. The CI `e2e` job has not run on GitHub yet: open the PR and read it.
+- Left: Phase 2 (remaining honesty: Q9 to Q13, Q15 to Q17, Q12), Dependabot #7, #11, #12, #13 (deferred; #11 cannot be rebased by Dependabot), the dataset licence, the public contact address. Browser-side cost curves (parity test) are not built; threshold and cost pages still call the live API.
+- Watch out: Playwright 1.59 needs `npx playwright install chromium-headless-shell` once per machine (build 1217); set `E2E_PYTHON` to the venv python; a red e2e run takes about 9 minutes because each failing route waits out its timeout.
+
+**2026-11-17 — model: `claude-sonnet-5-5` (Claude Code). Roadmap Phase 0 started on branch `phase-0/land-existing`.**
 - Did: read the 14 Nov roadmap; confirmed PR #14 and #15 are merged, PR #16 (roadmap docs) and Dependabot #6 to #13 are open, `main` is unprotected (API 404). Added `LICENSE` (MIT, code only), a README "License and data" note that says the dataset's source and terms are unconfirmed, and a status banner at the top of this file.
 - Left: merge #16, branch protection (C7), Dependabot triage, then Phase 1 (G1 static snapshot, G2, G4, C9 end-to-end test watched failing first, Q14, F14, B19). Decision recorded with the user: static snapshot, not `GET /results/latest`.
 - Watch out: CI `audit` job is already `continue-on-error`, so it shows red but blocks nothing; `npm audit` reports 12 high and 2 critical (tinypool, vitest are dev-only; vite and zod fixes are semver-major). Dependabot #7 (date-fns major) fails `frontend` and `docker`; #12 (fastapi) fails `catboost-thread-check`; those CI runs are weeks old, so re-run before trusting them.
