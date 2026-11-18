@@ -352,6 +352,15 @@ python train.py
 
 ---
 
+## 📄 License and data
+
+The code is released under the [MIT License](LICENSE).
+
+The repository includes the Telco customer churn sample file (`data/telco_churn.csv`) so the
+demo runs offline. Its original source and redistribution terms have **not been confirmed yet**,
+and the MIT License above covers the code only, not that file. If you are the data owner and
+want it removed, open an issue.
+
 ## 👨‍💻 Author
 
 **Pranav**
