@@ -1,7 +1,7 @@
 # ChurnLens API runtime — what backend/main.py needs to boot and serve requests.
 # Compiled to requirements.txt (pinned, with transitive deps) via:
 #   venv/Scripts/python.exe -m piptools compile requirements.in -o requirements.txt
-fastapi==0.111.0
+fastapi==0.115.2
 uvicorn[standard]==0.29.0
 python-multipart==0.0.9
 python-dotenv==1.0.0
