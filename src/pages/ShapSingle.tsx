@@ -14,7 +14,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { predictChurn } from "@/services/api";
-import { usePipelineStore } from "@/stores/pipelineStore";
 import { toast } from "sonner";
 import { Loader2, AlertTriangle, Shield } from "lucide-react";
 import type { CustomerInput, PredictionResult } from "@/services/api";
@@ -22,8 +21,6 @@ import { FEATURE_OPTIONS, DEFAULT_CUSTOMER_FEATURES } from "@/types/api";
 import { CHART_COLORS } from "@/constants/chartColors";
 
 export default function ShapSingle() {
-  const { currentThreshold } = usePipelineStore();
-
   const [features, setFeatures] = useState<CustomerInput>({
     gender: DEFAULT_CUSTOMER_FEATURES.gender,
     SeniorCitizen: DEFAULT_CUSTOMER_FEATURES.SeniorCitizen,
@@ -77,7 +74,9 @@ export default function ShapSingle() {
   };
 
   const prob = result?.probability ?? 0;
-  const isHighRisk = prob > currentThreshold;
+  // The decision is the API's: it applies the threshold the deployed model was tuned with.
+  // Re-deciding here against the browser store's threshold could disagree with the model.
+  const isHighRisk = result?.prediction === 1;
 
   // Convert backend SHAP object → sorted array
   const shapValues = result?.shap_values
@@ -202,7 +201,7 @@ export default function ShapSingle() {
             </div>
 
             <p className="text-xs text-muted-foreground mt-2">
-              Threshold: {currentThreshold}
+              Threshold: {result ? result.threshold_used : "—"}
             </p>
           </div>
 

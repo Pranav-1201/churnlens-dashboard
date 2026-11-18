@@ -43,6 +43,8 @@ client polls GET /pipeline-status/{job_id}, then GET /results/{job_id}
 
 `src/services/api.ts` (base URL from `VITE_API_URL` / `VITE_API_BASE_URL`, default `http://localhost:8000`) -> `src/stores/pipelineStore.ts` (run state, results) -> hooks in `src/hooks/` -> pages. There is no auth header handling in the frontend yet.
 
+Where `results` comes from (DEC-015): at start `App` calls `loadSnapshot()`, which fetches `models/results_snapshot.json` as a static asset (Vite `?url`) and fills the store, so no page waits for a pipeline run or for the API. A run started in the browser (`runDemo`, `runWithFile`) replaces it. `<html data-results="snapshot|run">` shows which. Builds with `VITE_READ_ONLY=true` hide the run and upload controls. Route errors are caught by `RouteErrorBoundary` in `DashboardLayout`. The production-mode end-to-end test is `e2e/production.spec.ts` (`npm run test:e2e`, CI job `e2e`).
+
 ## Where bugs tend to live (gaps between files)
 
 - `features.py` <-> pickled artifact: module/function rename silently breaks loading.

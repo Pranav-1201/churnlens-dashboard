@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { cn } from '@/lib/utils';
+import { READ_ONLY } from '@/lib/runtime';
 
 // Slug → possible backend model names (must match ModelPage.tsx)
 const MODEL_SLUG_NAMES: Record<string, string[]> = {
@@ -179,8 +180,8 @@ export function AppSidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Footer */}
       <div className="border-t border-sidebar-border p-2 space-y-1 shrink-0">
-        {/* New Run button — visible when pipeline has completed */}
-        {phase === 'complete' && (
+        {/* New Run button — visible when pipeline has completed, never on a read-only deployment */}
+        {phase === 'complete' && !READ_ONLY && (
           <button
             onClick={() => { reset(); navigate('/'); }}
             className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-md text-sm text-primary hover:bg-primary/10 transition-colors w-full font-medium"

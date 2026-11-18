@@ -163,16 +163,17 @@ def _run_pipeline_job(job_id: str, df: pd.DataFrame):
 # ──────────────────────────────────────────────
 # Health
 # ──────────────────────────────────────────────
-@app.get("/livez")
+@app.api_route("/livez", methods=["GET", "HEAD"])
 def livez():
     """Liveness: the process is up. Says nothing about the model (use /health for that)."""
     return {"status": "alive"}
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
     """Readiness: 200 only when the model artifact loads; 503 otherwise, so load balancers,
-    the Docker HEALTHCHECK and uptime monitors see a broken model as unhealthy."""
+    the Docker HEALTHCHECK and uptime monitors see a broken model as unhealthy.
+    HEAD is accepted because many uptime monitors probe with it by default."""
     try:
         from churn_intel.artifacts import load_artifact
         _, _, meta = load_artifact()

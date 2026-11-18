@@ -12,6 +12,10 @@ RUN npm ci
 COPY . .
 ARG VITE_API_BASE_URL=http://localhost:8000
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+# Set to true for a deployment whose API runs with CHURNLENS_ENV=production (read-only):
+# the UI then hides the upload and run controls the server would refuse anyway.
+ARG VITE_READ_ONLY=false
+ENV VITE_READ_ONLY=${VITE_READ_ONLY}
 RUN npm run build
 
 # ---- serve stage ----
