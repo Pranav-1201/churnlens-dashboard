@@ -155,6 +155,13 @@ Resolved: CORS wildcard, hardcoded demo path, `mockData.ts`, pandas warnings, tr
 
 ## 9. Session log (5-line handoff per session; newest first)
 
+**2026-11-15 — model: `claude-fable-5-2` (Claude Code). Audit and plan only, no product code edited.**
+- Did: second full audit on `phase-c/honesty-fixes` with the Phase B branch run beside it in production mode and driven in a browser. Gates this session: pytest 114 passed, 1 deselected (coverage 73%); vitest 8 passed; `tsc` 97 files, exit 0; `eslint src` 0 errors; build OK. New roadmap written outside the repo (it supersedes the September one).
+- State: sections 0 to 8 of this file predate Phases A, B and C and are stale. Phases A, B and C are all merged (PR #5; PR #14 and PR #15 merged 2026-11-15). The public plan is `docs/ROADMAP.md`; decisions DEC-011 to DEC-014 are in `docs/DECISIONS.md`. Dependabot PRs #6 to #13 are untriaged.
+- Left: the roadmap's Phase 0 and Phase 1. The main finding: in read-only production mode the frontend has no way to load results, so the demo button fails and every results page is empty; results also vanish on reload. Several pages still show typed-in or generated values (Optuna, ANN evaluation, SHAP directions, feature and data pages).
+- Watch out: vitest and Vite print a long Application Control error about the SWC binary and then run normally, so read the summary line. The venv has no `python-docx` (`py -3.11` does). Seven decisions are waiting on the maintainer and are listed at the end of the roadmap.
+- Model pin: this plan was produced by `claude-fable-5-2`; record implementation decisions in `docs/DECISIONS.md` with the model that made them.
+
 **2026-09-29 — model: `claude-sonnet-5-5` (Claude Code).**
 - Did: PR #3 (Phase 6) merged, CI green on `main` (`8155402b`); ran a full audit (results kept outside this public repo) and added the AI-collaboration documents: `CLAUDE.md`, `docs/ARCHITECTURE.md`, `FLOW.md`, `DECISIONS.md`, `CONSTRAINTS.md`, `TEST_CHECKLIST.md`, `ROLLBACK.md`, `traces/README.md`.
 - Left: nothing from Phases 1-6; a new roadmap (CI for the frontend, deploy blockers, honesty fixes, methodology, hosting) exists outside the repo and needs the maintainer's go-ahead per phase.

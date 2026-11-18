@@ -5,7 +5,7 @@ Read this before touching code. "Allow" means "allow within these limits". Sourc
 ## Never
 1. **Never commit or push unless asked.** Stage explicit paths, never `git add -A`; run `git status --short` after every commit and remove stray zero-byte junk files. [HANDOFF §6/§7]
 2. **Never add AI attribution** (`Co-Authored-By`, "Generated with") to commits, PRs or releases. Pranav is the sole developer of record. [global CLAUDE.md]
-3. **Never synthesize a chart or number in the browser.** If the backend cannot supply it, show an honest empty/"not available" state. [AUDIT §4.B, §4.J]
+3. **Never synthesize a chart or number in the browser.** No formulas standing in for data, no `Math.random`, no typed-in results. If real data cannot supply it, show an honest empty/"not available" state. Exact recomputation in the browser from real pipeline outputs (for example a confusion matrix at each threshold over the shipped out-of-fold predictions) is allowed only when a CI parity test proves it equals the Python function on the same input. [AUDIT §4.B, §4.J; DEC-011]
 4. **Never tune the model or threshold on the test set.** Selection uses out-of-fold predictions; the test set is evaluated once. [pipeline.py]
 5. **Never rename `churn_intel/features.py` or `engineer_features`** without retraining the artifact — the pickle references it. [features.py note]
 6. **Never loosen a guard test to make a change pass.** If a change breaks a guard, revert the change. [constitution R3]

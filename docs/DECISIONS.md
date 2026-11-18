@@ -38,3 +38,18 @@ Why: no Docker/WSL on the dev machine; the `ubuntu-latest` runner is the only pl
 
 **DEC-010 — PROPOSED (2026-09-29, `claude-sonnet-5-5`): deploy as a read-only public demo; keep training offline.** Not yet decided by the maintainer.
 Why (measured): the API process uses ~240 MB resident after boot and after 21 `/predict` calls, so it fits a 512 MB free instance; a training run needs several GB and cannot run on any free tier. Proposal: frontend on a static host, backend serving `/predict` plus a committed results snapshot, `/run-pipeline` disabled in production. The full plan is kept outside this repository.
+Update 2026-11-15: accepted by the maintainer, and extended by DEC-011.
+
+**DEC-011 — Static-first delivery: ship the results snapshot with the frontend and recompute cost curves in the browser from the real out-of-fold predictions** (2026-11-15, recorded by `claude-fable-5-2`). Accepted by the maintainer.
+Why (measured 2026-11-14): in read-only production mode the frontend had no way to load results, so the demo failed and the results pages were empty; and a free API instance sleeps when idle, so charts must not wait for it. The API stays for live single-customer scoring only.
+Guard: a CI parity test must show the browser computation equals `cost_threshold_curve` on the same input. `docs/CONSTRAINTS.md` rule 3 was reworded to say this.
+
+**DEC-012 — Product direction: a public "Retention Decision Lab" first, a bring-your-own-data tool second, trained in the visitor's browser** (2026-11-15, recorded by `claude-fable-5-2`). Accepted by the maintainer; stage two is subject to a feasibility spike.
+Why: scoring churn is a commodity and logistic regression matches the boosted models here within fold-to-fold noise, so the differentiator is the decision (who to contact, at what expected profit, with what uncertainty), not the model. In-browser training needs no accounts or uploads and costs nothing to host. Hosting stays on free tiers.
+
+**DEC-013 — The decision model gains an offer success rate and charges the offer cost to every contacted customer** (2026-11-15, recorded by `claude-fable-5-2`). Accepted by the maintainer; supersedes the cost function in DEC-003 once implemented.
+Why: `business_cost` prices only misses and false alarms, which assumes every offer works. That assumption, not the data, puts the threshold at 0.07. The rule needs calibrated probabilities, so calibration becomes a prerequisite.
+
+**DEC-014 — Remove the Optuna and ANN pages unless their real recorded histories can be exported; show US dollars and drop the currency switcher; allow a full interface restructure (23 pages to about 6)** (2026-11-15, recorded by `claude-fable-5-2`). Accepted by the maintainer.
+Why: those two pages still draw generated values; the dataset is in US dollars; the maintainer lifted the "no dashboard redesign" scope guard for this plan (`docs/ROADMAP.md`).
+Still open: the public contact address, and confirmation of the Telco dataset's redistribution terms.
