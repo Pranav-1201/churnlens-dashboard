@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Bell, Menu, Eye, EyeOff, Wifi, WifiOff } from 'lucide-react';
 import { AppSidebar } from '@/components/AppSidebar';
+import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import { usePipelineStore } from '@/stores/pipelineStore';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
@@ -105,7 +106,9 @@ export default function DashboardLayout() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
           >
-            <Outlet />
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <Outlet />
+            </RouteErrorBoundary>
           </motion.div>
         </main>
       </div>
