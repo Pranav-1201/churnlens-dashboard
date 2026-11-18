@@ -1,6 +1,8 @@
 # ChurnLens — Session Handoff
 
-Living handoff for a fresh Claude Code session. Last updated 2026-09-24: **Phases 3, 4, 5 and 6 are complete.** Phase 6 is [PR #3](https://github.com/Pranav-1201/churnlens-dashboard/pull/3) (branch `phase6-deployment`), CI green — awaiting merge (see section 4a).
+Living handoff for a fresh Claude Code session. Last updated 2026-11-17.
+
+> **STATUS (2026-11-17): sections 0 to 8 below predate the September plan's Phases A, B and C and are historical.** Phases A, B and C are merged (PR #5, #14, #15). The current plan is [docs/ROADMAP.md](docs/ROADMAP.md); read the newest entry in section 9 first. The backend suite was 114 passed on 2026-11-15 (not 112); the live constitution is v6.35 (not v6.1); there is a `frontend` CI job, a `LICENSE` and a production mode (`CHURNLENS_ENV=production`).
 
 ---
 
@@ -154,6 +156,12 @@ Resolved: CORS wildcard, hardcoded demo path, `mockData.ts`, pandas warnings, tr
 ---
 
 ## 9. Session log (5-line handoff per session; newest first)
+
+**2026-11-17 — model: `claude-sonnet-5-5` (Claude Code). Roadmap Phase 0 started on branch `phase-0/land-existing`; nothing committed yet.**
+- Did: read the 14 Nov roadmap; confirmed PR #14 and #15 are merged, PR #16 (roadmap docs) and Dependabot #6 to #13 are open, `main` is unprotected (API 404). Added `LICENSE` (MIT, code only), a README "License and data" note that says the dataset's source and terms are unconfirmed, and a status banner at the top of this file.
+- Left: merge #16, branch protection (C7), Dependabot triage, then Phase 1 (G1 static snapshot, G2, G4, C9 end-to-end test watched failing first, Q14, F14, B19). Decision recorded with the user: static snapshot, not `GET /results/latest`.
+- Watch out: CI `audit` job is already `continue-on-error`, so it shows red but blocks nothing; `npm audit` reports 12 high and 2 critical (tinypool, vitest are dev-only; vite and zod fixes are semver-major). Dependabot #7 (date-fns major) fails `frontend` and `docker`; #12 (fastapi) fails `catboost-thread-check`; those CI runs are weeks old, so re-run before trusting them.
+- Model pin: record Phase 1 design decisions in `docs/DECISIONS.md` (next free `DEC-` number) with this model.
 
 **2026-11-15 — model: `claude-fable-5-2` (Claude Code). Audit and plan only, no product code edited.**
 - Did: second full audit on `phase-c/honesty-fixes` with the Phase B branch run beside it in production mode and driven in a browser. Gates this session: pytest 114 passed, 1 deselected (coverage 73%); vitest 8 passed; `tsc` 97 files, exit 0; `eslint src` 0 errors; build OK. New roadmap written outside the repo (it supersedes the September one).
