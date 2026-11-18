@@ -143,7 +143,10 @@ jobs:
     # Roadmap C9. Builds the frontend, starts the API in production mode (read-only, as it
     # would be deployed) and opens every route in a real browser. Before this existed, the
     # planned production configuration showed an empty site and no check noticed.
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest is 26.04 now and Playwright 1.59 does not support it
+    # ("does not support chromium-headless-shell on ubuntu26.04-x64"). Move this back to
+    # ubuntu-latest once the pinned Playwright release lists the new image.
+    runs-on: ubuntu-24.04
     if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
